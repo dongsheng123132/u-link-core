@@ -1,0 +1,22 @@
+services:
+  relay:
+    build:
+      context: ../..
+      dockerfile: deploy/relay/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8900:8900"
+    env_file:
+      - .env
+    environment:
+      - TLS_CERT=/certs/cert.pem
+      - TLS_KEY=/certs/key.pem
+    volumes:
+      - ./tls:/certs:ro
+    command:
+      - "-port"
+      - "8900"
+      - "-tls-cert"
+      - "/certs/cert.pem"
+      - "-tls-key"
+      - "/certs/key.pem"
