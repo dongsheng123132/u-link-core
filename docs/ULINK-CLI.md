@@ -16,6 +16,8 @@
 | `ulink pair issue` | IT 向 relay 申请一次性 6 位码（员工输码；兼容旧流程） |
 | `ulink pair approve <code>` | IT 审批员工端显示的 6 位码（企业主流程） |
 | `ulink pair revoke <device>` | 吊销设备公钥并断开连接 |
+| `ulink screenshot <device>` | 远端截一屏并拉回本地（AI 的“眼睛”） |
+| `ulink type <device> --text "..."` | 往远端当前焦点窗口粘贴文本（实验性） |
 | `ulink mcp` | MCP stdio server：`ulink_devices / ulink_run / ulink_audit` |
 | agent `--pairing-code` | 员工端提交 IT 发的码（旧流程） |
 | agent 无码启动 | 员工端显示 6 位码，等 IT `pair approve`（新流程） |
@@ -160,6 +162,21 @@ ulink --json run <device> -- npm test
 - `--` 后按空格拼接为远端命令；复杂引号用 `--command '...'`。
 - `--powershell` 让 Windows agent 走 PowerShell runner。
 - 远端退出码非 0：JSON `ok=false`、`error.code=remote_failed`，进程退出 6。
+
+### screenshot / type（视觉与输入）
+
+```bash
+ulink screenshot pc-4e73 --out ./shot.png
+ulink type pc-4e73 --text "hello from AI"
+```
+
+- `screenshot`：agent 跑平台原生截屏（Windows 用 PowerShell，macOS 用 `screencapture`，Linux 用
+  `import/gnome-screenshot/scrot`），把 PNG 存临时目录，再用文件通道拉回；远端临时文件自动清理。
+  - macOS 首次会弹「屏幕录制」授权；没授权会失败或长时间等待。
+  - 帧只是**只读快照**，不是实时流。
+- `type`：把文本放进远端剪贴板再粘贴（base64 传输，无引号风险）。
+  - macOS 需要「辅助功能/Automation」权限；Windows 需要交互会话 + 前台窗口；Linux 需要 xclip/xdotool。
+  - 实验性：会打到**当前焦点窗口**，用之前先确认焦点在哪个应用。
 
 ### audit
 

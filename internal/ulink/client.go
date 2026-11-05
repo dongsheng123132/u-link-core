@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -167,6 +168,21 @@ func RevokeDevice(cfg *Config, device string) error {
 		return ClassifyError(err)
 	}
 	return nil
+}
+
+// pullFile downloads one remote file through a fresh controller connection.
+func pullFile(cfg *Config, device, remotePath, localPath string) (int64, error) {
+	c, err := Connect(cfg)
+	if err != nil {
+		return 0, err
+	}
+	defer c.Close()
+	return c.PullFile(device, remotePath, localPath)
+}
+
+// mkdirAll creates a directory for local output files.
+func mkdirAll(dir string) error {
+	return os.MkdirAll(dir, 0o755)
 }
 
 // PingRelay verifies the relay is reachable and the token is accepted.

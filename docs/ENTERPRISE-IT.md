@@ -110,6 +110,7 @@
   - 可选 **截图**（只读）帮助判断；不做实时控制。
   - 屏幕控制转接现有工具（RustDesk/向日葵/RDP），或企业版 v1.5 再评估集成（注意许可证）。
 - 不自研 WebRTC/RDP 推流；那会把团队拖进 RustDesk 的战场。
+- **长期方向（不阻塞 v1）**：U-Link 增加「视觉 + 输入」两条通道，做成外置 **KVM 节点**（HDMI 采集 + USB HID 注入），覆盖机器没进操作系统时的 BIOS/黑屏场景；硬件不自研，用 PiKVM/NanoKVM 等开源节点。详见 [REMOTE-KVM-NODE.md](./REMOTE-KVM-NODE.md)。
 
 ## 6. 架构
 

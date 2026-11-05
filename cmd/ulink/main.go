@@ -50,7 +50,7 @@ func main() {
 	root.PersistentFlags().BoolVar(&flagJSON, "json", false, "machine-readable JSON envelope")
 	root.PersistentFlags().StringVar(&flagSession, "session", "", "audit session id (default: random per process)")
 
-	root.AddCommand(devicesCmd(), runCmd(), auditCmd(), doctorCmd(), pairCmd(), mcpCmd(), versionCmd())
+	root.AddCommand(devicesCmd(), runCmd(), auditCmd(), doctorCmd(), pairCmd(), mcpCmd(), versionCmd(), screenCmd(), typeCmd())
 
 	if err := root.Execute(); err != nil {
 		var ee *exitError
@@ -477,6 +477,57 @@ func mcpCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func screenCmd() *cobra.Command {
+	var out string
+	cmd := &cobra.Command{
+		Use:   "screenshot <device>",
+		Short: "Capture one frame from a device and pull it locally",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := loadConfig()
+			if err != nil {
+				return emitError(ulink.NewErr("usage", err.Error(), ""), err)
+			}
+			res, err := ulink.CaptureScreen(cfg, args[0], out)
+			if err != nil {
+				return emitError(ulink.NewErr("", "", ""), err)
+			}
+			if flagJSON {
+				return emit(ulink.NewOK(res))
+			}
+			fmt.Printf("saved %s (%d bytes, %s)\n", res.LocalPath, res.Bytes, res.OS)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&out, "out", "", "local output path (default ./ulink-screen-<device>-<ts>.png)")
+	return cmd
+}
+
+func typeCmd() *cobra.Command {
+	var text string
+	cmd := &cobra.Command{
+		Use:   "type <device>",
+		Short: "Paste text into the focused window of a device (clipboard + paste)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := loadConfig()
+			if err != nil {
+				return emitError(ulink.NewErr("usage", err.Error(), ""), err)
+			}
+			if err := ulink.TypeText(cfg, args[0], text); err != nil {
+				return emitError(ulink.NewErr("", "", ""), err)
+			}
+			if flagJSON {
+				return emit(ulink.NewOK(map[string]any{"device": args[0], "typed": len(text)}))
+			}
+			fmt.Printf("typed %d chars into %s\n", len(text), args[0])
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&text, "text", "", "text to paste into the focused window")
+	return cmd
 }
 
 func versionCmd() *cobra.Command {
