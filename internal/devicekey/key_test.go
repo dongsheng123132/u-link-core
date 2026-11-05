@@ -3,6 +3,7 @@ package devicekey
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -23,8 +24,11 @@ func TestLoadOrCreateIsStable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm()&0o077 != 0 {
-		t.Fatalf("key file too open: %v", info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		// Windows has no POSIX permission bits, so this check is Unix-only.
+		if info.Mode().Perm()&0o077 != 0 {
+			t.Fatalf("key file too open: %v", info.Mode().Perm())
+		}
 	}
 }
 
