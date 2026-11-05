@@ -1,0 +1,22 @@
+name: Feature request
+description: Suggest a capability or an integration
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the situation, not the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: Works on a running OS (agent present)
+        - label: Needs BIOS / boot / black-screen access (external KVM)

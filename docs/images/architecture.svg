@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="360" viewBox="0 0 960 360" role="img" aria-label="U-Link architecture">
+  <style>
+    .box { fill:#ffffff; stroke:#1f2937; stroke-width:2; rx:10; }
+    .dark { fill:#111827; stroke:#111827; }
+    .t { font:600 16px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; fill:#111827; }
+    .s { font:400 12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; fill:#4b5563; }
+    .w { font:600 16px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; fill:#ffffff; }
+    .ws { font:400 12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; fill:#d1d5db; }
+    .link { stroke:#2563eb; stroke-width:2; fill:none; marker-end:url(#a); }
+  </style>
+  <defs>
+    <marker id="a" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#2563eb"/>
+    </marker>
+  </defs>
+  <rect width="960" height="360" fill="#f8fafc"/>
+  <rect class="box" x="30" y="60" width="200" height="110"/>
+  <text class="t" x="50" y="92">CLI / MCP</text>
+  <text class="s" x="50" y="116">devices · run · audit</text>
+  <text class="s" x="50" y="136">screenshot · type · kvm</text>
+  <text class="s" x="50" y="156">AI agent friendly</text>
+
+  <rect class="box dark" x="330" y="40" width="300" height="150"/>
+  <text class="w" x="355" y="78">Self-hosted Relay (wss)</text>
+  <text class="ws" x="355" y="104">device keys · pairing codes</text>
+  <text class="ws" x="355" y="124">audit · session scope</text>
+  <text class="ws" x="355" y="144">no inbound ports on targets</text>
+  <text class="ws" x="355" y="166">Apache-2.0 · docker compose</text>
+
+  <rect class="box" x="730" y="60" width="200" height="110"/>
+  <text class="t" x="750" y="92">Agent</text>
+  <text class="s" x="750" y="116">Windows · macOS · Linux</text>
+  <text class="s" x="750" y="136">exec · files · screen</text>
+  <text class="s" x="750" y="156">Ed25519 identity</text>
+
+  <path class="link" d="M230,115 L330,115"/>
+  <path class="link" d="M630,115 L730,115"/>
+
+  <rect class="box" x="330" y="230" width="300" height="90"/>
+  <text class="t" x="355" y="262">External IP-KVM nodes</text>
+  <text class="s" x="355" y="286">PiKVM / NanoKVM · HDMI + USB HID</text>
+  <text class="s" x="355" y="306">BIOS / boot menu / black screen</text>
+  <path class="link" d="M480,190 L480,230"/>
+</svg>

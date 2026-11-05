@@ -1,43 +1,49 @@
 # U-Link Core
 
-> Self-hosted, CLI/MCP-first remote execution for **your own machines** or
-> employees who have explicitly consented. No inbound ports, no account, no
-> screen recording by default.
+[![CI](https://github.com/dongsheng123132/u-link-core/actions/workflows/ci.yml/badge.svg)](https://github.com/dongsheng123132/u-link-core/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Go](https://img.shields.io/badge/go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[中文文档](README.zh-CN.md) · [CLI 文档](docs/ULINK-CLI.md) · [KVM 适配器](docs/KVM-ADAPTER.md)
 
-U-Link Core is the open-source core of the U-Link family. It lets an operator
-(or an AI agent) run commands, move files, audit actions, and diagnose machines
-across NAT — using a relay you host yourself.
+> **Self-hosted, CLI/MCP-first remote execution for your own machines** — or for
+> employees who explicitly consented. No inbound ports, no account, no cloud
+> dependency, and no screen recording by default.
 
-**Not** a remote desktop. **Not** for controlling customers without consent.
-**Not** a public relay service.
+[中文版 README](README.zh-CN.md)
 
-> **Status: v0.3 alpha.** The core is usable self-hosted, but it has not been
-> audited for enterprise production. Known gaps: the controller token is still
-> a single global token, payload E2E is not implemented, and there is no Windows
-> admin helper. See `SECURITY.md` before exposing a relay.
+U-Link Core is the open-source core of the U-Link family. An operator — or an AI
+agent — can run commands, move files, look at the screen, audit every action,
+and even reach a machine that never booted, using a relay **you host yourself**.
 
-## What is included
+- **Not** a remote desktop (MeshCentral / RustDesk territory).
+- **Not** for controlling customers without consent.
+- **Not** a public relay service.
 
-- `ulink` CLI: `devices / run / audit / doctor / pair / mcp`
-- Relay server: WebSocket + TLS, routes `exec` / file push/pull by request ID
-- Agent: Windows / macOS / Linux; Ed25519 device key; one-time enrollment code
-- MCP stdio server: `ulink_devices / ulink_run / ulink_audit`
-- JSON envelope + stable exit codes for AI callers
-- Docker Compose for a self-hosted relay
-- Basic Windows recipes: printer / SMB share / driver / software diagnosis
+---
+
+## Architecture
+
+![U-Link architecture](docs/images/architecture.svg)
+
+```
+[ CLI / MCP ]  --wss-->  [ self-hosted relay ]  <--wss--  [ agent on each machine ]
+ ulink                device keys · pairing           Windows · macOS · Linux
+ devices/run/audit    session scope · audit            exec · files · screen
+```
+
+Targets never open an inbound port: agents dial out to your relay.
 
 ## Quick start
 
-### 1. Start the relay
+### 1. Run a relay (your own Linux box, or an internal server)
 
 ```bash
 cd deploy/relay
-cp .env.example .env
-# edit .env: AGENT_TOKEN, CONTROLLER_TOKEN
+cp .env.example .env      # set AGENT_TOKEN / CONTROLLER_TOKEN
 mkdir -p tls && openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
   -keyout tls/key.pem -out tls/cert.pem -subj "/CN=ulink-relay"
-docker compose up -d
-curl -k https://127.0.0.1:8900/health   # ok
+docker compose up -d --build
+curl -k https://127.0.0.1:8900/health    # ok
 ```
 
 ### 2. Start an agent on a machine you own
@@ -47,46 +53,72 @@ curl -k https://127.0.0.1:8900/health   # ok
   --id my-pc --file-roots "$HOME"
 ```
 
-For a new device, the agent prints a 6-digit code. Approve it from the operator
-side:
+The agent prints a **6-digit enrollment code** and waits for approval:
 
-```bash
-ulink --relay wss://relay.example.com:8900 --token "$CONTROLLER_TOKEN" \
-  pair approve 123456
+```
+Enrollment code: 381385 (waiting for IT approval)
 ```
 
-### 3. Operate
+### 3. Approve it from the operator side
 
 ```bash
+ulink --relay wss://relay.example.com:8900 --token "$CONTROLLER_TOKEN" pair approve 381385
 ulink devices
-ulink --json run my-pc -- hostname
-ulink audit --limit 20
-ulink mcp   # expose to Claude Code / DSH / Codex
 ```
+
+### 4. Operate
+
+```bash
+ulink --json run my-pc -- hostname          # run a command
+ulink screenshot my-pc --out shot.png       # look at the screen
+ulink audit --limit 20                      # what happened
+ulink mcp                                   # expose to Claude Code / DSH / Codex
+```
+
+## What the CLI gives you
+
+| Command | What it does |
+|---|---|
+| `ulink devices` | list online devices (with public-key fingerprint) |
+| `ulink run <dev> -- <cmd>` | run a command; `--json` for agents; exit code = remote exit code |
+| `ulink screenshot <dev>` | capture one frame on the device and pull it back |
+| `ulink type <dev> --text "..."` | paste text into the focused window (experimental) |
+| `ulink audit` | local JSONL audit trail of every remote action |
+| `ulink pair init/issue/approve/revoke` | device identity, one-time codes, revocation |
+| `ulink kvm shot/key/type` | drive external IP-KVM nodes (PiKVM / NanoKVM) — see [docs/KVM-ADAPTER.md](docs/KVM-ADAPTER.md) |
+| `ulink mcp` | MCP stdio server: `ulink_devices`, `ulink_run`, `ulink_audit` |
 
 ## Security defaults
 
-- Device ID is bound to an Ed25519 key; a different key for the same ID is rejected.
-- New devices need a one-time code; codes expire (10 min) and are rate-limited.
-- Push/pull is confined to `--file-roots` (default: home + temp).
-- Commands are redacted in audit/log lines for common secret shapes.
-- `REQUIRE_DEVICE_KEYS=1` enforces device identity; turn it on after upgrading agents.
+- **Device identity**: every device holds an Ed25519 key; the relay binds
+  `device id → public key` and rejects a different key for the same id.
+- **Consent**: a new device needs a one-time 6-digit code that an operator
+  approves (`ulink pair approve <code>`). Codes expire and are rate-limited.
+- **Least privilege**: push/pull is confined to `--file-roots` (default: home + temp).
+- **Audit + redaction**: commands are recorded locally and secret-looking values
+  are masked in logs.
+- **TLS pinning**: `--tls-pin` / `ULINK_TLS_PIN` pins the relay certificate.
+- **Path safety**: results are routed to the device that was asked, so a
+  compromised agent cannot inject output into another machine's session.
 
-See [SECURITY.md](SECURITY.md) and [docs/ENTERPRISE-IT.md](docs/ENTERPRISE-IT.md).
+Read [SECURITY.md](SECURITY.md) before exposing a relay to the internet.
 
-## KVM adapter (PiKVM / NanoKVM)
+## Status
 
-`ulink kvm shot|key|type` drives external IP-KVM nodes (HDMI capture + USB HID),
-so an AI agent can reach a machine that has not booted into an OS — BIOS setup,
-boot menus, black screens. We adapt their public HTTP APIs instead of forking
-their firmware. See [docs/KVM-ADAPTER.md](docs/KVM-ADAPTER.md).
+**v0.3 alpha.** The core is usable self-hosted and is being hardened. Known
+gaps: the controller token is still a single global token, payload E2E is not
+implemented, and there is no Windows admin helper yet.
 
-## Enterprise edition
+## Contributing
 
-The private U-Link Enterprise edition adds: central console, RBAC/SSO, multi-tenant
-MSP support, Windows admin helper, policy/approval flows, screen handoff, audit
-export/SIEM, signed installers, and support. The core stays Apache-2.0.
+Issues and PRs are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Good first
+contributions: a new recipe, a new KVM backend, a Windows/macOS fix, or docs
+in your language.
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Apache License 2.0 — [LICENSE](LICENSE) · [NOTICE](NOTICE).
+
+The private **U-Link Enterprise** edition adds a central console, RBAC/SSO,
+multi-tenant MSP support, a Windows admin helper, policy/approval flows, audit
+export to SIEM, signed installers, and support. The core stays Apache-2.0.
