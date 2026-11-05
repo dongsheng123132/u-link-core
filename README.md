@@ -11,6 +11,11 @@ across NAT — using a relay you host yourself.
 **Not** a remote desktop. **Not** for controlling customers without consent.
 **Not** a public relay service.
 
+> **Status: v0.3 alpha.** The core is usable self-hosted, but it has not been
+> audited for enterprise production. Known gaps: the controller token is still
+> a single global token, payload E2E is not implemented, and there is no Windows
+> admin helper. See `SECURITY.md` before exposing a relay.
+
 ## What is included
 
 - `ulink` CLI: `devices / run / audit / doctor / pair / mcp`
