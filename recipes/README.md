@@ -15,3 +15,5 @@ Rules:
 - Dangerous actions (delete share, uninstall driver) must support `-WhatIf` or
   print a dry-run plan first.
 - These scripts are examples, not a complete enterprise library.
+- `screenshot.ps1` captures one screen for visual diagnosis; it is **not** live
+  remote control. Treat screenshots as sensitive: consent + audit + delete after use.
