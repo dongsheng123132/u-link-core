@@ -5,13 +5,16 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
 
+	"github.com/dongsheng123132/remote-agent/internal/kvm"
 	"github.com/dongsheng123132/remote-agent/internal/ulink"
 	"github.com/dongsheng123132/remote-agent/internal/version"
 	"github.com/spf13/cobra"
@@ -50,7 +53,7 @@ func main() {
 	root.PersistentFlags().BoolVar(&flagJSON, "json", false, "machine-readable JSON envelope")
 	root.PersistentFlags().StringVar(&flagSession, "session", "", "audit session id (default: random per process)")
 
-	root.AddCommand(devicesCmd(), runCmd(), auditCmd(), doctorCmd(), pairCmd(), mcpCmd(), versionCmd(), screenCmd(), typeCmd())
+	root.AddCommand(devicesCmd(), runCmd(), auditCmd(), doctorCmd(), pairCmd(), mcpCmd(), versionCmd(), screenCmd(), typeCmd(), kvmCmd())
 
 	if err := root.Execute(); err != nil {
 		var ee *exitError
@@ -528,6 +531,125 @@ func typeCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&text, "text", "", "text to paste into the focused window")
 	return cmd
+}
+
+func kvmCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "kvm",
+		Short: "Control external IP-KVM nodes (PiKVM/KVMD, NanoKVM) for BIOS-level access",
+	}
+	cmd.AddCommand(&cobra.Command{
+		Use:   "list",
+		Short: "List configured KVM nodes",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			file, err := loadKVMFile()
+			if err != nil {
+				return emitError(ulink.NewErr("usage", err.Error(), ""), err)
+			}
+			if flagJSON {
+				return emit(ulink.NewOK(map[string]any{"devices": file.Devices}))
+			}
+			for _, d := range file.Devices {
+				fmt.Printf("%s\t%s\t%s\n", d.ID, d.Kind, d.URL)
+			}
+			return nil
+		},
+	})
+	var out string
+	shot := &cobra.Command{
+		Use:   "shot <device>",
+		Short: "Grab one frame from a KVM node",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dev, err := loadKVMDevice(args[0])
+			if err != nil {
+				return emitError(ulink.NewErr("", "", ""), err)
+			}
+			frame, err := dev.Screenshot(context.Background())
+			if err != nil {
+				return emitError(ulink.NewErr("", "", ""), err)
+			}
+			if out == "" {
+				out = fmt.Sprintf("kvm-%s-%d.jpg", args[0], time.Now().Unix())
+			}
+			if err := os.WriteFile(out, frame, 0o644); err != nil {
+				return emitError(ulink.NewErr("", "", ""), err)
+			}
+			if flagJSON {
+				return emit(ulink.NewOK(map[string]any{"device": args[0], "local_path": out, "bytes": len(frame)}))
+			}
+			fmt.Printf("saved %s (%d bytes)\n", out, len(frame))
+			return nil
+		},
+	}
+	shot.Flags().StringVar(&out, "out", "", "local output path")
+	cmd.AddCommand(shot)
+
+	key := &cobra.Command{
+		Use:   "key <device> <key>",
+		Short: "Send a single key to a KVM node (e.g. enter, f2)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dev, err := loadKVMDevice(args[0])
+			if err != nil {
+				return emitError(ulink.NewErr("", "", ""), err)
+			}
+			if err := dev.SendKey(context.Background(), args[1]); err != nil {
+				return emitError(ulink.NewErr("", "", ""), err)
+			}
+			if flagJSON {
+				return emit(ulink.NewOK(map[string]any{"device": args[0], "key": args[1]}))
+			}
+			fmt.Printf("sent key %s to %s\n", args[1], args[0])
+			return nil
+		},
+	}
+	cmd.AddCommand(key)
+
+	var text string
+	typ := &cobra.Command{
+		Use:   "type <device>",
+		Short: "Type text into a KVM node",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dev, err := loadKVMDevice(args[0])
+			if err != nil {
+				return emitError(ulink.NewErr("", "", ""), err)
+			}
+			if err := dev.Type(context.Background(), text); err != nil {
+				return emitError(ulink.NewErr("", "", ""), err)
+			}
+			if flagJSON {
+				return emit(ulink.NewOK(map[string]any{"device": args[0], "typed": len(text)}))
+			}
+			fmt.Printf("typed %d chars into %s\n", len(text), args[0])
+			return nil
+		},
+	}
+	typ.Flags().StringVar(&text, "text", "", "text to type")
+	cmd.AddCommand(typ)
+	return cmd
+}
+
+func loadKVMFile() (*kvm.File, error) {
+	dir, err := ulink.HomeDir()
+	if err != nil {
+		return nil, err
+	}
+	return kvm.LoadConfig(filepath.Join(dir, "kvm.json"))
+}
+
+func loadKVMDevice(id string) (kvm.Device, error) {
+	file, err := loadKVMFile()
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range file.Devices {
+		if c.ID == id {
+			return kvm.New(c)
+		}
+	}
+	return nil, &ulink.Err{Code: "not_found", Message: "kvm device not found: " + id, Hint: "run `ulink kvm list`"}
 }
 
 func versionCmd() *cobra.Command {

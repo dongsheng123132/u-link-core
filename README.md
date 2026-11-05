@@ -74,6 +74,13 @@ ulink mcp   # expose to Claude Code / DSH / Codex
 
 See [SECURITY.md](SECURITY.md) and [docs/ENTERPRISE-IT.md](docs/ENTERPRISE-IT.md).
 
+## KVM adapter (PiKVM / NanoKVM)
+
+`ulink kvm shot|key|type` drives external IP-KVM nodes (HDMI capture + USB HID),
+so an AI agent can reach a machine that has not booted into an OS — BIOS setup,
+boot menus, black screens. We adapt their public HTTP APIs instead of forking
+their firmware. See [docs/KVM-ADAPTER.md](docs/KVM-ADAPTER.md).
+
 ## Enterprise edition
 
 The private U-Link Enterprise edition adds: central console, RBAC/SSO, multi-tenant
