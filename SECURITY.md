@@ -21,12 +21,21 @@ customer backdoor, and not a public relay service.
 
 - A compromised operator token can control every device on that relay. Use a
   dedicated relay per organization/tenant; rotate tokens; restrict network access.
-- The current relay uses a self-signed TLS certificate; clients should pin the
-  certificate fingerprint when exposing the relay to the internet.
+- The relay does not provide end-to-end encryption. A relay operator can inspect
+  and potentially alter relayed protocol traffic; TLS protects each client-to-relay
+  connection, not the payload from the relay.
+- With a self-signed TLS certificate, clients must pin its SHA-256 fingerprint.
+  Obtain and distribute the fingerprint over a trusted out-of-band channel.
 - No built-in screen/remote-desktop. Use a separate, licensed remote-support tool
   for GUI/UAC-only cases.
 - No Windows admin helper in this core edition; printer/share/driver operations
   need an explicit admin path (see `docs/ENTERPRISE-IT.md`).
+
+## Acceptable use
+
+Use U-Link only on devices you own or on devices whose users explicitly
+consented to remote administration. Do not use it for covert access,
+persistence, surveillance, or control of third-party devices without permission.
 
 ## Reporting a vulnerability
 
@@ -37,9 +46,14 @@ issue for an unfixed vulnerability.
 
 ## Hardening checklist
 
-- Set `REQUIRE_DEVICE_KEYS=1` **after** all agents are upgraded.
-- Use a strong random `CONTROLLER_TOKEN`; do not commit it.
-- Expose the relay only over TLS; pin the certificate fingerprint in clients.
+- Device keys and operator-approved pairing are enabled by default. The relay
+  refuses non-loopback listeners unless device keys and TLS are both enabled.
+  For a temporary legacy migration, bind to loopback only and explicitly disable
+  device-key enforcement.
+- Use a strong random `AGENT_TOKEN` and `CONTROLLER_TOKEN`; do not commit them.
+- For publicly trusted TLS certificates, clients use normal certificate and
+  hostname verification. For self-signed certificates, set `ULINK_TLS_PIN` on
+  every client using a fingerprint obtained over a trusted channel.
 - Put the relay behind a firewall/VPN; do not expose it to the public internet
   unless you understand the abuse risk.
 - Restrict `file_roots` on agents to the directories operators actually need.

@@ -1,7 +1,7 @@
 # U-Link 企业 IT 版：需求、流程与边界
 
 > 版本：v0.1 方向稿 · 2026-11-05
-> 依据：真实客户需求 + 6 家模型会审（`.review/panel-enterprise/out/REPORT.md`）+ 代码审查
+> 依据：经过匿名化的需求调研与公开版本边界；具体实现仍以代码和发布说明为准。
 > 关联：[PRODUCT-VISION.md](./PRODUCT-VISION.md)（个人/开发者线）、[PUBLIC-EDITION.md](./PUBLIC-EDITION.md)（开源拆分）
 
 ## 0. 一句话

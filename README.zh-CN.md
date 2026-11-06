@@ -10,6 +10,8 @@
 U-Link Core 是 U-Link 家族的开源核心。运维人员——或者 AI agent——可以用**自己托管的 relay**
 在跨 NAT 的机器上跑命令、传文件、看屏幕、审计每一步，甚至够到一台还没进操作系统的机器。
 
+MCP 服务通过 stdio 启动，权限等同于运行它的本机用户。MCP 工具调用与 CLI 共用操作路径，并用本机配置的 controller token 连接 relay；任何能启动该进程的 AI 客户端，都能使用这个用户在 U-Link 上的权限。请把 token 放在仅本人可读的配置或密钥库中，只接入可信的 AI 客户端。
+
 - **不是**远程桌面（那是 MeshCentral / RustDesk 的地盘）。
 - **不是**用来在未经同意的情况下控制客户机器。
 - **不是**公共 relay 服务。
@@ -34,7 +36,10 @@ U-Link Core 是 U-Link 家族的开源核心。运维人员——或者 AI agent
 cd deploy/relay
 cp .env.example .env      # 填 AGENT_TOKEN / CONTROLLER_TOKEN
 mkdir -p tls && openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
-  -keyout tls/key.pem -out tls/cert.pem -subj "/CN=ulink-relay"
+  -keyout tls/key.pem -out tls/cert.pem -subj "/CN=relay.example.com" \
+  -addext "subjectAltName=DNS:relay.example.com" # 替换成你的 relay 域名
+# 把指纹通过可信渠道交给客户端
+openssl x509 -in tls/cert.pem -noout -fingerprint -sha256
 docker compose up -d --build
 curl -k https://127.0.0.1:8900/health    # ok
 ```
@@ -45,6 +50,8 @@ curl -k https://127.0.0.1:8900/health    # ok
 ./ulink-agent --server wss://relay.example.com:8900 --token "$AGENT_TOKEN" \
   --id my-pc --file-roots "$HOME"
 ```
+
+自签名 relay 需要在**被控端和控制端**都设置 `ULINK_TLS_PIN`，值为 `openssl x509` 输出的 SHA-256 证书指纹，并通过可信的带外渠道分发指纹。使用受信任 CA 签发的证书时无需 pin，客户端默认执行系统证书链和主机名校验。
 
 agent 会打印 **6 位验证码**并等待审批：
 
@@ -96,6 +103,15 @@ ulink mcp                                   # 接到 Claude Code / DSH / Codex
 
 **v0.3 alpha**：核心可自托管使用，仍在加固中。已知缺口：controller token 仍是全局单 token、
 没有端到端加密、还没有 Windows 管理员 Helper。
+
+## 本地验证
+
+```bash
+go test ./...
+./scripts/e2e-test.sh
+```
+
+端到端冒烟会在本机启动 relay，完成一个 agent 的注册、审批、命令执行和设备吊销；不会连接任何托管 relay。
 
 ## 参与共建
 

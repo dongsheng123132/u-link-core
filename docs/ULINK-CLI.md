@@ -2,7 +2,7 @@
 
 > 状态：v0.3 可运行 · 2026-11-05
 > v0.2 补设备身份；v0.3 补「员工出码 → IT 审批」和文件根目录/TLS pin。
-> 愿景与路线图：[PRODUCT-VISION.md](./PRODUCT-VISION.md)；发布闸门：`.review/ulink-publish-checklist.md`
+> 愿景与路线图：[PRODUCT-VISION.md](./PRODUCT-VISION.md)；安全与发布注意事项：[SECURITY.md](../SECURITY.md)
 
 ## 1. 现在能做什么
 
@@ -24,13 +24,12 @@
 
 所有命令支持 `--json`；错误与退出码稳定（见 §4）。
 
-**还没做**：持久 shell、目录 sync、端口转发、多机并行、E2E、controller 凭据按设备隔离、Windows admin helper/屏幕。见 §7。
+**还没做**：持久 shell、目录 sync、端口转发、多机并行、controller 凭据按设备隔离、Windows admin helper。端到端冒烟见 `scripts/e2e-test.sh`。
 
 ## 2. 构建与快速开始
 
 ```bash
-cd ~/claude/远程无头运维工具cli
-make ulink                 # -> build/ulink
+mkdir -p build && go build -o build/ulink ./cmd/ulink
 ./build/ulink doctor
 ./build/ulink devices
 ./build/ulink --json run <device> -- hostname
@@ -121,15 +120,16 @@ ulink pair revoke pc-office    # relay 删公钥 + 断开设备
 
 被吊销设备重连会收到 `registration rejected: valid one-time pairing code required`；重新 `pair issue` 并带新码启动即可。设备密钥文件保留，重配对会绑定同一公钥（不必换 key）。
 
-### 3.5 relay 开启强制
+### 3.5 relay 安全默认
 
-默认关闭以兼容旧 agent；升级完 agent 后打开：
+设备密钥 + 一次性配对默认开启。relay 默认只监听 `127.0.0.1`；监听非回环地址时必须同时启用设备密钥和 TLS，否则拒绝启动：
 
 ```bash
-REQUIRE_DEVICE_KEYS=1 CONTROLLER_TOKEN=... AGENT_TOKEN=... ./server --port 8900
+REQUIRE_DEVICE_KEYS=1 CONTROLLER_TOKEN=... AGENT_TOKEN=... \
+  TLS_CERT=cert.pem TLS_KEY=key.pem ./server --listen 0.0.0.0 --port 8900
 ```
 
-关闭时（默认）旧 agent 仍可注册，但新 agent 会带上公钥，relay 会机会性绑定；**生产安全必须设 `REQUIRE_DEVICE_KEYS=1`**。
+临时兼容旧 agent 时，只能绑定回环地址，并显式传 `--require-device-keys=false` 或 `REQUIRE_DEVICE_KEYS=0`；不要将这种迁移模式暴露到网络。
 
 ### 3.6 文件根目录与 TLS pin
 
@@ -147,7 +147,7 @@ REQUIRE_DEVICE_KEYS=1 CONTROLLER_TOKEN=... AGENT_TOKEN=... ./server --port 8900
   # agent
   ./build/agent ... --tls-pin AA:BB:...
   ```
-  不设 pin 时仍是 `InsecureSkipVerify`（兼容旧自签 relay），生产必须设。
+  有可信 CA 的证书不需要 pin，客户端默认执行系统证书链和主机名校验。自签证书必须设置 pin；pin 应从 relay 主机获取，并通过可信带外渠道分发。空 pin 不会跳过 TLS 校验。
 
 ## 4. 命令细节
 

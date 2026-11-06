@@ -68,8 +68,8 @@ type Hub struct {
 	controllerToken string
 
 	// v0.2 device identity: device ID -> base64 Ed25519 public key.
-	// requireKeys is opt-in so old agents keep working until the fleet is
-	// upgraded; set REQUIRE_DEVICE_KEYS=1 on the relay to enforce.
+	// Relay command defaults this enforcement on. Legacy mode is only safe
+	// during a migration when the relay is bound to loopback.
 	deviceKeys   map[string]string
 	requireKeys  bool
 	pairCodes    map[string]*pairCode

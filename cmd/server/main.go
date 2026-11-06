@@ -2,8 +2,8 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -13,11 +13,12 @@ import (
 
 func main() {
 	port := flag.Int("port", 8900, "server listen port")
+	listenHost := flag.String("listen", "127.0.0.1", "listen host (non-loopback requires TLS and device keys)")
 	agentToken := flag.String("agent-token", "", "token for agent connections (public)")
 	controllerToken := flag.String("controller-token", "", "token for controller connections (secret)")
 	tlsCert := flag.String("tls-cert", "", "TLS certificate file path")
 	tlsKey := flag.String("tls-key", "", "TLS private key file path")
-	requireKeys := flag.Bool("require-device-keys", false, "require v0.2 Ed25519 device keys + pairing codes")
+	requireKeys := flag.Bool("require-device-keys", true, "require Ed25519 device keys + pairing codes")
 	flag.Parse()
 
 	// Prefer environment variables over flags (avoids token in process list)
@@ -47,12 +48,16 @@ func main() {
 		*requireKeys = v
 	}
 
+	if err := validateRelaySecurity(*listenHost, *requireKeys, *tlsCert, *tlsKey); err != nil {
+		log.Fatal(err)
+	}
+
 	hub := server.NewHub(*agentToken, *controllerToken)
 	hub.SetRequireDeviceKeys(*requireKeys)
 	if *requireKeys {
 		log.Printf("Device identity enforcement: ON (Ed25519 key + one-time pairing code required)")
 	} else {
-		log.Printf("Device identity enforcement: OFF (legacy agents accepted; set REQUIRE_DEVICE_KEYS=1 to enforce)")
+		log.Printf("WARNING: legacy device authentication is enabled on loopback only")
 	}
 	handler := server.NewHandler(hub)
 
@@ -64,19 +69,19 @@ func main() {
 		w.Write([]byte("ok"))
 	})
 
-	addr := fmt.Sprintf(":%d", *port)
+	addr := net.JoinHostPort(*listenHost, strconv.Itoa(*port))
 
 	if *tlsCert != "" && *tlsKey != "" {
 		log.Printf("Relay server starting on %s (TLS)", addr)
-		log.Printf("  Agent endpoint:      wss://localhost%s/ws/agent", addr)
-		log.Printf("  Controller endpoint: wss://localhost%s/ws/controller", addr)
+		log.Printf("  Agent endpoint:      wss://%s/ws/agent", addr)
+		log.Printf("  Controller endpoint: wss://%s/ws/controller", addr)
 		if err := http.ListenAndServeTLS(addr, *tlsCert, *tlsKey, nil); err != nil {
 			log.Fatalf("Server failed: %v", err)
 		}
 	} else {
 		log.Printf("Relay server starting on %s (no TLS)", addr)
-		log.Printf("  Agent endpoint:      ws://localhost%s/ws/agent", addr)
-		log.Printf("  Controller endpoint: ws://localhost%s/ws/controller", addr)
+		log.Printf("  Agent endpoint:      ws://%s/ws/agent", addr)
+		log.Printf("  Controller endpoint: ws://%s/ws/controller", addr)
 		if err := http.ListenAndServe(addr, nil); err != nil {
 			log.Fatalf("Server failed: %v", err)
 		}
