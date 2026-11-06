@@ -3,7 +3,7 @@
 [![CI](https://github.com/dongsheng123132/u-link-core/actions/workflows/ci.yml/badge.svg)](https://github.com/dongsheng123132/u-link-core/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev/)
-[English](README.md) · [CLI 文档](docs/ULINK-CLI.md) · [KVM 适配器](docs/KVM-ADAPTER.md)
+[English](README.md) · [CLI 文档](docs/ULINK-CLI.md) · [桌面版](docs/DESKTOP-APP.md) · [KVM 适配器](docs/KVM-ADAPTER.md)
 
 > **给自己机器用的、自托管、CLI/MCP 优先的远程执行层**：无入站端口、无账号、不依赖云，默认不录屏。
 
@@ -43,6 +43,28 @@ make link-package-mac     # 打包 build/U-Link.app + zip
 ```
 
 目标机器**永远不用开入站端口**：agent 主动向外连你的 relay。
+
+## 部署自己的 relay
+
+**没有官方托管 relay**：每台机器都要连**你自己**搭建的 relay。完整方法写在
+[relay 部署 Skill](skills/u-link-relay-setup/SKILL.md)（AI agent 也能读）和
+[deploy/relay/README.md](deploy/relay/README.md)。简版：
+
+```bash
+git clone https://github.com/dongsheng123132/u-link-core.git
+cd u-link-core/deploy/relay && cp .env.example .env
+# 改 .env：AGENT_TOKEN / CONTROLLER_TOKEN 换成随机长串，REQUIRE_DEVICE_KEYS=1 保持开启
+mkdir -p tls && openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
+  -keyout tls/key.pem -out tls/cert.pem -subj "/CN=relay.example.com" \
+  -addext "subjectAltName=DNS:relay.example.com"   # 证书要覆盖客户端实际用的地址
+openssl x509 -in tls/cert.pem -noout -fingerprint -sha256  # 指纹发给客户端当 TLS pin
+docker compose up -d --build
+curl -k https://127.0.0.1:8900/health                     # ok
+```
+
+客户端用 `wss://relay.example.com:8900` + `AGENT_TOKEN`，运维用同一地址 +
+`CONTROLLER_TOKEN`。新设备首次注册要运维审批一次性配对码。没有 TLS 和设备密钥
+的 relay 不要暴露到网络。
 
 ## 快速开始
 

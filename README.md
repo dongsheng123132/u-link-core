@@ -3,7 +3,7 @@
 [![CI](https://github.com/dongsheng123132/u-link-core/actions/workflows/ci.yml/badge.svg)](https://github.com/dongsheng123132/u-link-core/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev/)
-[中文文档](README.zh-CN.md) · [CLI 文档](docs/ULINK-CLI.md) · [KVM 适配器](docs/KVM-ADAPTER.md)
+[中文文档](README.zh-CN.md) · [CLI 文档](docs/ULINK-CLI.md) · [桌面版](docs/DESKTOP-APP.md) · [KVM 适配器](docs/KVM-ADAPTER.md)
 
 > **Self-hosted, CLI/MCP-first remote execution for your own machines** — or for
 > employees who explicitly consented. No inbound ports, no account, no cloud
@@ -58,6 +58,29 @@ notes and uninstall steps.
 ```
 
 Targets never open an inbound port: agents dial out to your relay.
+
+## Deploy your own relay
+
+**There is no hosted relay.** Every installation points at a relay you run
+yourself. The full method is in the
+[relay setup Skill](skills/u-link-relay-setup/SKILL.md) (also readable by AI
+agents) and in [deploy/relay/README.md](deploy/relay/README.md). In short:
+
+```bash
+git clone https://github.com/dongsheng123132/u-link-core.git
+cd u-link-core/deploy/relay && cp .env.example .env
+# edit .env: random AGENT_TOKEN / CONTROLLER_TOKEN, keep REQUIRE_DEVICE_KEYS=1
+mkdir -p tls && openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
+  -keyout tls/key.pem -out tls/cert.pem -subj "/CN=relay.example.com" \
+  -addext "subjectAltName=DNS:relay.example.com"   # cover the address clients dial
+openssl x509 -in tls/cert.pem -noout -fingerprint -sha256  # give this pin to clients
+docker compose up -d --build
+curl -k https://127.0.0.1:8900/health                     # ok
+```
+
+Clients use `wss://relay.example.com:8900` with `AGENT_TOKEN`, and the operator
+uses the same URL with `CONTROLLER_TOKEN`. New devices need an approved
+one-time pairing code. Do not expose a relay without TLS and device keys.
 
 ## Quick start
 
