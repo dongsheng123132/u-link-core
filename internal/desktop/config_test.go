@@ -3,6 +3,7 @@ package desktop
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -31,12 +32,16 @@ func TestLoadConfigCreatesDefaults(t *testing.T) {
 	}
 
 	// The file must be created with 0600 (the controller token lives there).
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("config permissions = %v, want 0600", info.Mode().Perm())
+	// Windows has no POSIX permission bits, so the assertion only applies
+	// to Unix; the file is still created with the same mode request there.
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat: %v", err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("config permissions = %v, want 0600", info.Mode().Perm())
+		}
 	}
 }
 
