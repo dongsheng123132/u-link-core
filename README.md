@@ -67,6 +67,11 @@ For a self-signed relay, set `ULINK_TLS_PIN` to the SHA-256 fingerprint from
 out of band over a trusted channel. With a publicly trusted TLS certificate, no
 pin is needed; clients use normal certificate and hostname verification.
 
+Pin mode still checks that the certificate is valid for the host you dialed, so
+the certificate must cover the address your clients use. When you reach the
+relay by IP, add an IP SAN, for example
+`-addext "subjectAltName=IP:192.168.1.5"`.
+
 The agent prints a **6-digit enrollment code** and waits for approval:
 
 ```

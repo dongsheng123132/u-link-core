@@ -8,6 +8,8 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"fmt"
+	"net"
+	"net/url"
 	"strings"
 )
 
@@ -19,14 +21,21 @@ func Normalize(pin string) string {
 	return pin
 }
 
-// Config returns a TLS config. With no pin, Go's normal certificate and
-// hostname verification applies. A non-empty pin opts into self-signed
-// certificates by verifying the leaf certificate's SHA-256 fingerprint.
-func Config(pin string) *tls.Config {
+// Config returns a TLS config for a relay URL. With no pin, Go's normal
+// certificate and hostname verification applies. A non-empty pin opts into
+// self-signed certificates by verifying the leaf fingerprint AND the
+// hostname of the relay the caller actually dialed.
+//
+// The host is taken from rawURL rather than from tls.ConnectionState.ServerName:
+// SNI cannot carry IP literals, so ServerName is empty when a self-hosted relay
+// is addressed by IP (the common case), which would otherwise make pin mode
+// unusable for exactly the deployments it exists for.
+func Config(rawURL, pin string) *tls.Config {
 	if strings.TrimSpace(pin) == "" {
 		return &tls.Config{}
 	}
 	want := Normalize(pin)
+	host := HostFromURL(rawURL)
 	return &tls.Config{
 		InsecureSkipVerify: true, // pin mode accepts self-signed certs, then verifies identity below
 		VerifyConnection: func(cs tls.ConnectionState) error {
@@ -34,11 +43,11 @@ func Config(pin string) *tls.Config {
 				return fmt.Errorf("tls pin: no peer certificate")
 			}
 			leaf := cs.PeerCertificates[0]
-			if cs.ServerName == "" {
-				return fmt.Errorf("tls pin: no server name available for hostname verification")
+			if host == "" {
+				return fmt.Errorf("tls pin: cannot determine relay host for hostname verification")
 			}
-			if err := leaf.VerifyHostname(cs.ServerName); err != nil {
-				return fmt.Errorf("tls pin hostname mismatch: %w", err)
+			if err := leaf.VerifyHostname(host); err != nil {
+				return fmt.Errorf("tls pin hostname mismatch for %q: %w", host, err)
 			}
 			sum := sha256.Sum256(leaf.Raw)
 			got := hex.EncodeToString(sum[:])
@@ -48,4 +57,17 @@ func Config(pin string) *tls.Config {
 			return nil
 		},
 	}
+}
+
+// HostFromURL extracts the bare hostname (no port) from a ws:// or wss:// URL.
+func HostFromURL(rawURL string) string {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	host := u.Hostname()
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.String()
+	}
+	return host
 }

@@ -496,7 +496,7 @@ func (c *Client) connect(ctx context.Context) error {
 		c.stateMu.RLock()
 		pin := c.tlsPin
 		c.stateMu.RUnlock()
-		dialer.TLSClientConfig = tlspin.Config(pin)
+		dialer.TLSClientConfig = tlspin.Config(c.serverURL, pin)
 	}
 	rawConn, _, err := dialer.DialContext(ctx, c.serverURL, nil)
 	if err != nil {

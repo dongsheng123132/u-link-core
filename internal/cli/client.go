@@ -62,7 +62,7 @@ func (c *Client) Connect() error {
 		dialer.Proxy = nil
 	}
 	if strings.HasPrefix(c.serverURL, "wss://") {
-		dialer.TLSClientConfig = tlspin.Config(c.tlsPin)
+		dialer.TLSClientConfig = tlspin.Config(c.serverURL, c.tlsPin)
 	}
 	rawConn, _, err := dialer.Dial(c.serverURL, nil)
 	if err != nil {
