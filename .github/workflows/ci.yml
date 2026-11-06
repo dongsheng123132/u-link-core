@@ -20,6 +20,25 @@ jobs:
         run: go test -race -count=1 ./...
       - name: Build
         run: go build ./...
+  desktop:
+    # The macOS menu bar app needs cgo, so build it on a macOS runner and
+    # cross-compile the Windows tray app from there.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+      - name: Build macOS menu bar app (cgo)
+        run: |
+          CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -trimpath \
+            -ldflags "-s -w -X github.com/dongsheng123132/remote-agent/internal/version.Version=ci" \
+            -o /tmp/u-link ./cmd/link
+      - name: Build Windows tray app (pure Go)
+        run: |
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath \
+            -ldflags "-s -w -H windowsgui -X github.com/dongsheng123132/remote-agent/internal/version.Version=ci" \
+            -o /tmp/u-link.exe ./cmd/link
   e2e:
     runs-on: ubuntu-latest
     steps:

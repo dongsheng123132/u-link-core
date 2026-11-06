@@ -27,6 +27,23 @@ store, and only register trusted AI clients.
 
 ---
 
+## Desktop app (menu bar / tray)
+
+`cmd/link` builds a resident app for macOS (menu bar) and Windows (notification
+area): a status dot for online/offline, a local dashboard with the device list
+and a streaming terminal, and one-click pairing.
+
+```bash
+make link                 # macOS menu bar app (needs cgo)
+make link-windows         # Windows tray app
+make link-package-mac     # build/U-Link.app + zip
+```
+
+The desktop app ships **unconfigured**: set your relay URL, agent token and
+controller token in the dashboard's 设置 card on first run. See
+[docs/DESKTOP-APP.md](docs/DESKTOP-APP.md) for the full walkthrough, security
+notes and uninstall steps.
+
 ## Architecture
 
 ![U-Link architecture](docs/images/architecture.svg)

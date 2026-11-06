@@ -1,0 +1,1211 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>U-Link 控制台</title>
+<!--
+  U-Link 本地控制台（单文件，go:embed 内嵌，离线可用） · 设计契约：docs/DESKTOP-APP.md §6
+
+  API 假设（前端实现依据；后端不满足时需同步修改本文件）：
+  1. 鉴权：本地 API token 通过 URL 片段 #t=<token> 下发（托盘打开时拼在地址里），页面解析后立即
+     history.replaceState 清掉片段，并转存 sessionStorage（键 ulink_token）；之后所有 /api 请求
+     都带 X-ULink-Token 头，401 视为「本地会话已失效」。
+  2. GET /api/status → {version,port,tray,started_at,repo_url,agent{state,device_id,hostname,os,relay,allow_control,
+     audit_count,connected_at,last_error},controller{ready,error,device_count},settings{autostart,device_prefix_filter}}；
+     state ∈ online|connecting|offline|paused。
+  3. GET /api/devices → {devices:[{id,hostname,os,version,online,connect_at}],error}。
+  4. POST /api/exec {device,command,shell} → text/event-stream：event: meta data:{request_id}；
+     event: chunk data:{stream:"stdout"|"stderr",text}；event: done data:{exit_code}；
+     失败 event: error data:{message} 后关闭流。取消：POST /api/exec/cancel {request_id}。
+  5. GET /api/logs?limit=N → {logs:[{ts,kind:"app"|"audit",level:"info"|"warn"|"error",text}]}。
+  6. GET /api/settings 不回显 token 明文，只给 agent_token_set / controller_token_set 布尔值；其余字段
+     relay/device_id/allow_control/autostart/device_prefix_filter/show_all_devices。POST /api/settings 任意子集：
+     agent_token/controller_token 传空字符串=清除、不传=不变；relay/agent_token/device_id 改动返回
+     restart_required:true；返回 {ok,restart_required}。
+  7. POST /api/agent/restart → {ok}。
+  8. 网络错误视为「未连接本机服务」，页面每 3 秒自动重试并自动恢复。
+  9. 轮询节奏：/api/status 每 3 秒，/api/devices 每 10 秒，/api/logs 每 5 秒；页面隐藏时暂停。
+
+  零外链：不引用任何 CDN、外链字体、外链脚本、外链图片；字体全部使用系统字体。
+-->
+<style>
+:root{
+  --bg:#F5F6F8;--card:#fff;--line:#E7E9EE;--line-2:#D9DDE5;--text:#1B1F27;--text-2:#5B6472;--text-3:#8C93A0;--blue:#1B62F0;--blue-d:#1550C8;--blue-soft:#EEF3FE;--blue-line:#C6D8FC;--green:#0E9F5B;
+  --amber:#A9701A;--amber-soft:#FBF3E2;--amber-line:#EFDFBC;--red:#C13B2F;--red-soft:#FBEDEB;--red-line:#F0D3CE;--r:12px;--r-sm:10px;--shadow:0 1px 2px rgba(23,32,50,.05),0 4px 14px rgba(23,32,50,.04);--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{background:var(--bg);color:var(--text);font:14px/1.55 -apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+h1,h2,h3,p{margin:0}
+button{font:inherit}
+.spacer{flex:1}
+.mono{font-family:var(--mono)}
+.hint{font-size:12px;color:var(--text-3);line-height:1.5}
+.topbar{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.94);border-bottom:1px solid var(--line);backdrop-filter:saturate(180%) blur(8px)}
+.topbar-in{max-width:1280px;margin:0 auto;padding:11px 20px;display:flex;align-items:center;gap:12px}
+.brand{display:flex;align-items:center;gap:9px;font-weight:600;font-size:14.5px}
+.brand-mark{width:26px;height:26px;border-radius:8px;background:var(--blue);color:#fff;display:grid;place-items:center;font-size:13px;font-weight:700}
+.brand-sub{color:var(--text-3);font-weight:400;font-size:12px}
+.pill{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text-2);border:1px solid var(--line);background:#fff;border-radius:999px;padding:4px 11px;white-space:nowrap}
+.pill.subtle{background:#F7F8FA;font-size:12px;padding:2px 9px}
+.dot{width:8px;height:8px;border-radius:50%;background:#C3C9D3;flex:0 0 auto;display:inline-block}
+.dot.on{background:var(--green)}.dot.warn{background:#D08A1A}.dot.err{background:var(--red)}.dot.off{background:#B9BFC9}
+.dot.pulse{box-shadow:0 0 0 3px rgba(14,159,91,.16)}
+.page{max-width:1280px;margin:0 auto;padding:18px 20px 40px;display:flex;flex-direction:column;gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
+.card-h{display:flex;align-items:center;gap:10px;padding:13px 18px;border-bottom:1px solid var(--line);min-height:52px}
+.card-h h2{margin:0;font-size:15px;font-weight:600;letter-spacing:.2px}
+.card-b{padding:16px 18px}
+.cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:16px;align-items:start}
+.cols-settings{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr)}
+@media (max-width:1040px){.cols,.cols-settings{grid-template-columns:minmax(0,1fr)}}
+.banner{display:flex;align-items:flex-start;gap:10px;border-radius:var(--r);padding:11px 14px;font-size:13px;border:1px solid;line-height:1.6}
+.banner.err{background:var(--red-soft);border-color:var(--red-line);color:#8E2E25}
+.banner.warn{background:var(--amber-soft);border-color:var(--amber-line);color:#7A5312}
+.banner strong{margin-right:6px}
+.banner .btn{align-self:center;margin-left:auto;flex:0 0 auto}
+.overview-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+@media (max-width:1040px){.overview-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:560px){.overview-grid{grid-template-columns:minmax(0,1fr)}}
+.tile{background:#FBFCFD;border:1px solid var(--line);border-radius:var(--r-sm);padding:12px 14px;min-width:0}
+.tile-k{font-size:12px;color:var(--text-3);margin-bottom:5px;display:flex;align-items:center;gap:6px}
+.tile-v{font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px;word-break:break-all;line-height:1.4}
+.tile-v.mono{font-family:var(--mono);font-size:13px;font-weight:500}
+.tile .hint{margin-top:4px}.tile-actions{margin-top:7px}
+.switch-grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);gap:12px;margin-top:12px}
+@media (max-width:760px){.switch-grid{grid-template-columns:minmax(0,1fr)}}
+.switch-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:9px 0}
+.switch-row+.switch-row{border-top:1px dashed var(--line);margin-top:2px}
+.switch{position:relative;display:inline-flex;width:42px;height:24px;flex:0 0 auto}
+.switch input{position:absolute;inset:0;opacity:0;width:100%;height:100%;margin:0;cursor:pointer}
+.switch .track{position:absolute;inset:0;border-radius:999px;background:#D5D9E1;transition:background .16s ease;pointer-events:none}
+.switch .track::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform .16s ease}
+.switch input:checked+.track{background:var(--blue)}
+.switch input:checked+.track::after{transform:translateX(18px)}
+.switch input:disabled+.track{opacity:.45}
+.switch input:focus-visible+.track{outline:2px solid var(--blue);outline-offset:2px}
+.kv{display:flex;justify-content:space-between;gap:12px;font-size:12.5px;padding:3px 0}
+.kv span{color:var(--text-3)}.kv b{font-weight:600;font-family:var(--mono);font-size:12.5px}
+.btn{appearance:none;border:1px solid var(--line-2);background:#fff;color:var(--text);border-radius:var(--r-sm);padding:7px 13px;font-size:13px;cursor:pointer;transition:background .14s,border-color .14s,transform .06s;white-space:nowrap}
+.btn:hover{background:#F7F8FA;border-color:#C9CFDA}
+.btn:active{transform:translateY(1px)}
+.btn:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn.primary:hover{background:var(--blue-d);border-color:var(--blue-d)}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--text-2)}
+.btn.ghost:hover{background:#F1F3F7}
+.btn.danger{color:var(--red);border-color:var(--red-line)}
+.btn.danger:hover{background:var(--red-soft)}
+.btn.sm{padding:4px 10px;font-size:12px;border-radius:8px}
+.field{display:flex;flex-direction:column;gap:5px;min-width:0}
+.field>label{font-size:12px;color:var(--text-2);display:flex;align-items:center;gap:6px}
+.input{width:100%;border:1px solid var(--line-2);border-radius:var(--r-sm);padding:8px 11px;font-size:13px;color:var(--text);background:#fff;font-family:inherit}
+.input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(27,98,240,.12)}
+.input.mono{font-family:var(--mono);font-size:12.5px}
+.input:disabled{background:#F6F7F9;color:var(--text-3)}
+.input-group{display:flex;gap:6px}
+.input-group .input{flex:1;min-width:0}
+.select{width:auto;padding:5px 9px;font-size:12.5px;border-radius:8px;border:1px solid var(--line-2);background:#fff;color:var(--text);cursor:pointer}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+@media (max-width:900px){.form-grid{grid-template-columns:minmax(0,1fr)}}
+.check{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--text-2);cursor:pointer;padding-top:3px}
+.check input{accent-color:var(--blue);width:15px;height:15px;cursor:pointer}
+.settings-actions{display:flex;align-items:center;gap:12px;margin-top:15px;padding-top:14px;border-top:1px solid var(--line);flex-wrap:wrap}
+.feedback-links{display:flex;align-items:center;gap:6px;margin-top:10px;flex-wrap:wrap}
+.link{font-size:12px;color:var(--blue);text-decoration:none;border-bottom:1px solid transparent}
+.link:hover,.link:focus-visible{color:var(--blue-d);border-bottom-color:var(--blue-line)}
+.link:focus-visible{outline:2px solid var(--blue-line);outline-offset:2px;border-radius:3px}
+.dev-list{display:flex;flex-direction:column;gap:8px}
+.dev{display:flex;align-items:center;gap:11px;width:100%;text-align:left;padding:11px 12px;border:1px solid var(--line);border-radius:var(--r-sm);background:#fff;color:inherit;cursor:pointer;transition:border-color .15s,background .15s}
+.dev:hover{border-color:var(--line-2);background:#FCFDFF}
+.dev.is-active{border-color:var(--blue);background:var(--blue-soft);box-shadow:inset 0 0 0 1px var(--blue)}
+.dev:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+.dev-main{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.dev-name{font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dev-meta{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--text-3);min-width:0}
+.dev-meta .mono{font-size:12px;color:var(--text-2)}
+.dev-badge{font-size:11.5px;color:var(--text-3);border:1px solid var(--line);border-radius:999px;padding:1px 8px;flex:0 0 auto;background:#fff}
+.dev-badge.active{color:var(--blue-d);border-color:var(--blue-line)}
+.empty{padding:24px 8px;text-align:center;color:var(--text-3);font-size:13px;line-height:1.9}.note{margin-top:10px;font-size:12.5px;color:#7A5312;background:var(--amber-soft);border:1px solid var(--amber-line);border-radius:var(--r-sm);padding:8px 11px;line-height:1.6}
+.term-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid var(--line);background:#FAFBFC}
+.term-status{padding:8px 18px;font-size:12px;color:var(--text-3);background:#FBFCFD;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:7px;min-height:34px}
+.term-status.running{color:var(--blue-d);background:var(--blue-soft)}
+.term-status.error{color:var(--red);background:var(--red-soft)}
+.term-out{height:330px;overflow:auto;background:#fff;padding:12px 18px;font-family:var(--mono);font-size:12.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;border-bottom:1px solid var(--line)}
+.term-out:empty::before{content:"命令输出会实时显示在这里。先在左侧选择设备，再输入命令后按回车。";color:var(--text-3);font-family:inherit}
+.term-line{padding:1px 0}
+.term-line.cmd{color:var(--blue-d)}.term-line.sys{color:var(--text-3)}.term-line.err{color:var(--red)}
+.term-foot{display:flex;flex-direction:column;gap:10px}
+.chips{display:flex;gap:7px;flex-wrap:wrap}
+.chip{border:1px solid var(--line-2);background:#fff;border-radius:999px;padding:4px 11px;font-size:12px;color:var(--text-2);cursor:pointer;transition:.14s}
+.chip:hover:not(:disabled){border-color:var(--blue);color:var(--blue);background:var(--blue-soft)}
+.chip:disabled{opacity:.45;cursor:not-allowed}
+.chip:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.term-input-row{display:flex;align-items:center;gap:8px}
+.term-prompt{font-family:var(--mono);color:var(--blue);font-weight:700;flex:0 0 auto}
+.term-tools{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.log-list{max-height:320px;overflow:auto}
+.log-row{display:flex;align-items:baseline;gap:9px;padding:6px 0;border-bottom:1px dashed var(--line);font-size:12.5px}
+.log-row:last-child{border-bottom:none}
+.log-ts{flex:0 0 auto;color:var(--text-3);font-size:12px;font-family:var(--mono)}
+.log-kind{flex:0 0 auto;font-size:11px;padding:0 6px;border-radius:6px;background:#F1F3F7;color:var(--text-2);line-height:1.7}
+.log-kind.audit{background:var(--blue-soft);color:var(--blue-d)}
+.log-text{flex:1;min-width:0;color:var(--text-2);word-break:break-word;line-height:1.6}
+.log-row.error .log-text{color:var(--red)}
+.log-row.warn .log-text{color:#7A5312}
+.gate{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:24px;z-index:60;overflow:auto}
+.gate-card{width:min(460px,100%);background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 44px rgba(23,32,50,.10);padding:26px 26px 22px}
+.gate-brand{display:flex;align-items:center;gap:9px;font-weight:600;margin-bottom:18px;font-size:14.5px}
+.gate-card h1{font-size:18px;margin-bottom:8px;letter-spacing:.2px}
+.gate-card p{font-size:13px;color:var(--text-2);line-height:1.7}
+.gate-card form{display:flex;flex-direction:column;gap:12px;margin:18px 0 12px}
+.gate-card form .btn{width:100%;padding:9px 14px}
+#gate-status{margin-top:4px;font-size:12.5px;color:var(--text-3);line-height:1.7;min-height:20px}#gate-token{margin-top:5px}
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:#1B1F27;color:#fff;font-size:13px;padding:9px 16px;border-radius:10px;box-shadow:0 8px 28px rgba(23,32,50,.24);z-index:80;max-width:min(520px,calc(100vw - 40px));text-align:center;line-height:1.5}
+@media (max-width:640px){
+  .topbar-in{padding:10px 14px;gap:8px}.page{padding:14px 14px 32px;gap:13px}.card-h{padding:11px 14px}.card-b{padding:14px}.term-out{height:270px;padding:10px 14px}.brand-sub{display:none}.term-input-row{flex-wrap:wrap}.term-input-row .input{order:1;flex:1 1 100%}}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-in">
+    <div class="brand"><span class="brand-mark">U</span><span>U-Link 控制台</span><span class="brand-sub" id="version-label">本地服务</span></div>
+    <span class="spacer"></span>
+    <span class="pill" id="service-pill" role="status" aria-live="polite"><span class="dot" id="service-dot"></span><span id="service-text">正在连接本机服务</span></span>
+    <button class="btn sm" type="button" id="btn-refresh-all">刷新</button>
+  </div>
+</header>
+
+<main class="page" id="app" hidden>
+
+  <div class="banner err" id="banner" hidden>
+    <span class="dot err" id="banner-dot"></span>
+    <div><strong id="banner-title">未连接本机服务</strong><span id="banner-text"></span></div>
+    <button class="btn sm" type="button" id="banner-retry">重试</button>
+  </div>
+
+  <!-- 区块 1：状态总览 -->
+  <section class="card" id="overview" aria-labelledby="h-overview">
+    <div class="card-h">
+      <h2 id="h-overview">状态总览</h2><span class="hint" id="status-updated">等待首次刷新</span>
+      <span class="spacer"></span><button class="btn sm" type="button" id="btn-restart-agent">重启连线</button>
+    </div>
+    <div class="card-b">
+      <div class="overview-grid">
+        <div class="tile"><div class="tile-k">本机状态</div><div class="tile-v"><span class="dot" id="ov-state-dot"></span><span id="ov-state">未知</span></div><div class="hint" id="ov-state-hint">正在读取本机状态</div></div>
+        <div class="tile"><div class="tile-k">本机 ID</div><div class="tile-v mono" id="ov-device-id">—</div><div class="tile-actions"><button class="btn sm" type="button" id="btn-copy-id">复制 ID</button></div></div>
+        <div class="tile"><div class="tile-k">中继服务</div><div class="tile-v mono" id="ov-relay">—</div><div class="hint" id="ov-relay-hint">用于设备间互控的中继地址</div></div>
+        <div class="tile"><div class="tile-k">控制端</div><div class="tile-v"><span class="dot" id="ov-ctrl-dot"></span><span id="ov-ctrl">未知</span></div><div class="hint" id="ov-ctrl-hint">控制端负责发现并操作其他设备</div></div>
+      </div>
+      <div class="switch-grid">
+        <div class="tile">
+          <div class="switch-row"><div><div class="tile-k">允许被控制</div><div class="hint">关闭后本机拒绝所有远程命令，拒绝原因写入审计日志</div></div><label class="switch"><input type="checkbox" id="sw-allow" aria-label="允许被控制"><span class="track"></span></label></div>
+          <div class="switch-row"><div><div class="tile-k">开机自启</div><div class="hint">登录系统后自动运行 U-Link</div></div><label class="switch"><input type="checkbox" id="sw-autostart" aria-label="开机自启"><span class="track"></span></label></div>
+        </div>
+        <div class="tile">
+          <div class="tile-k">运行信息</div>
+          <div class="kv"><span>版本</span><b id="ov-version">—</b></div><div class="kv"><span>本地端口</span><b id="ov-port">—</b></div>
+          <div class="kv"><span>已运行</span><b id="ov-uptime">—</b></div><div class="kv"><span>审计条数</span><b id="ov-audit">—</b></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="cols">
+    <!-- 区块 2：设备列表 -->
+    <section class="card" id="devices" aria-labelledby="h-devices">
+      <div class="card-h">
+        <h2 id="h-devices">设备列表</h2><span class="pill subtle" id="dev-count">0 台</span>
+        <span class="spacer"></span><button class="btn sm" type="button" id="btn-refresh-dev">刷新</button>
+      </div>
+      <div class="card-b">
+        <div class="empty" id="dev-empty">正在获取设备列表…</div>
+        <div class="dev-list" id="dev-list" hidden></div>
+        <div class="note" id="dev-note" hidden></div>
+      </div>
+    </section>
+
+    <!-- 区块 3：终端（SSE 流式） -->
+    <section class="card" id="terminal" aria-labelledby="h-terminal">
+      <div class="card-h">
+        <h2 id="h-terminal">终端</h2><span class="pill subtle" id="term-device">未选择设备</span>
+        <span class="spacer"></span>
+        <label class="hint" for="term-shell">执行环境</label>
+        <select class="select" id="term-shell" aria-label="执行环境">
+          <option value="">自动</option><option value="powershell">PowerShell</option>
+          <option value="cmd">cmd</option><option value="sh">sh</option>
+        </select>
+      </div>
+      <div class="term-status" id="term-status"><span class="dot"></span><span id="term-status-text">请在左侧设备列表中选择一台设备</span></div>
+      <div class="term-out" id="term-out" role="log" aria-live="polite" aria-label="命令输出"></div>
+      <div class="card-b term-foot">
+        <div class="chips" id="term-chips"></div>
+        <div class="term-input-row">
+          <span class="term-prompt" aria-hidden="true">$</span>
+          <input class="input mono" id="term-input" type="text" placeholder="输入命令，回车执行" autocomplete="off" spellcheck="false" disabled aria-label="命令输入">
+          <button class="btn primary" type="button" id="btn-run" disabled>执行</button>
+          <button class="btn danger" type="button" id="btn-cancel" disabled>取消</button>
+        </div>
+        <div class="term-tools">
+          <button class="btn sm ghost" type="button" id="btn-clear">清空输出</button>
+          <span class="hint" id="term-hint">命令在本机发起，经中继转到目标设备执行</span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="cols cols-settings">
+    <!-- 区块 4a：设置 -->
+    <section class="card" id="settings" aria-labelledby="h-settings">
+      <div class="card-h"><h2 id="h-settings">设置</h2><span class="hint" id="settings-hint">正在读取设置…</span></div>
+      <div class="card-b">
+        <div class="form-grid">
+          <div class="field"><label for="set-relay">中继地址</label><input class="input mono" id="set-relay" type="text" autocomplete="off" placeholder="例如 wss://中继主机:8900"><span class="hint">修改后需要重启连线才会生效</span></div>
+          <div class="field"><label for="set-device-id">本机设备 ID</label><input class="input mono" id="set-device-id" type="text" autocomplete="off" placeholder="例如 mac-a1b2"><span class="hint">留空则每次启动随机生成；修改后需重启连线</span></div>
+          <div class="field"><label for="set-agent-token">被控端令牌</label><div class="input-group"><input class="input mono" id="set-agent-token" type="password" autocomplete="off" placeholder="未设置"><button class="btn sm" type="button" id="btn-toggle-agent-token">显示</button></div><span class="hint" id="agent-token-state">已设置时留空表示不修改</span></div>
+          <div class="field"><label for="set-controller-token">控制端令牌</label><div class="input-group"><input class="input mono" id="set-controller-token" type="password" autocomplete="off" placeholder="未设置"><button class="btn sm" type="button" id="btn-clear-controller-token">清除</button></div><span class="hint" id="ctrl-token-state">未设置则无法控制其他设备</span></div>
+          <div class="field"><label for="set-prefix">设备前缀过滤</label><input class="input mono" id="set-prefix" type="text" autocomplete="off" placeholder="例如 pc-"><span class="hint">只显示设备 ID 匹配该前缀的设备</span></div>
+          <div class="field"><label>显示范围</label><label class="check"><input type="checkbox" id="set-show-all"> 显示所有设备（忽略前缀过滤）</label><span class="hint">关闭后只显示自有机群</span></div>
+        </div>
+        <div class="settings-actions">
+          <button class="btn primary" type="button" id="btn-save-settings">保存设置</button>
+          <span class="hint" id="settings-saved"></span>
+        </div>
+        <div class="feedback-links">
+          <span class="hint">遇到问题或想贡献代码：</span>
+          <a class="link" id="link-issue" href="https://github.com/dongsheng123132/u-link-core/issues/new" target="_blank" rel="noopener">提交 Issue</a>
+          <span class="hint">·</span>
+          <a class="link" id="link-pr" href="https://github.com/dongsheng123132/u-link-core/pulls" target="_blank" rel="noopener">提交 PR</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- 区块 4b：本机审计日志 -->
+    <section class="card" id="audit" aria-labelledby="h-audit">
+      <div class="card-h">
+        <h2 id="h-audit">本机审计日志</h2><span class="pill subtle" id="audit-count">0 条</span>
+        <span class="spacer"></span><button class="btn sm" type="button" id="btn-refresh-logs">刷新</button>
+      </div>
+      <div class="card-b"><div class="log-list" id="log-list"><div class="empty">正在读取日志…</div></div></div>
+    </section>
+  </div>
+</main>
+
+<div class="gate" id="gate" hidden>
+  <div class="gate-card">
+    <div class="gate-brand"><span class="brand-mark">U</span><span>U-Link 控制台</span></div>
+    <h1 id="gate-title">需要访问令牌</h1>
+    <p id="gate-desc">本地控制台只接受带令牌的请求。请从托盘菜单选择「打开控制台」，浏览器会自动带上令牌。</p>
+    <form id="gate-form" autocomplete="off">
+      <label class="field" for="gate-token">
+        <span>本机令牌</span>
+        <input class="input mono" id="gate-token" type="password" placeholder="粘贴托盘菜单中的令牌" autocomplete="off" spellcheck="false">
+      </label>
+      <button class="btn primary" type="submit" id="gate-submit">进入控制台</button>
+    </form>
+    <p id="gate-status">正在检测本机服务…</p>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden role="status" aria-live="polite"></div>
+<noscript><div class="page"><div class="card"><div class="card-b">此控制台需要启用 JavaScript 才能使用。</div></div></div></noscript>
+
+<script>
+(function () {
+  'use strict';
+  var TOKEN_KEY = 'ulink_token', DEVICE_KEY = 'ulink_selected_device', SHELL_KEY = 'ulink_shell';
+  var STATUS_MS = 3000, DEVICES_MS = 10000, LOGS_MS = 5000, LOG_LIMIT = 200;
+  var state = {
+    token: '', service: 'unknown', serviceDetail: '', status: null, devices: [], devicesError: '',
+    selected: '', settings: null, logs: [], busy: false, requestId: '', streamAbort: null,
+    switching: false, gateReason: 'missing', timers: {}, statusBusy: false, devicesBusy: false, logsBusy: false
+  };
+  function $(id) { return document.getElementById(id); }
+  function ApiError(code, message) { this.name = 'ApiError'; this.code = code; this.message = message || '请求失败'; }
+  ApiError.prototype = Object.create(Error.prototype);
+  ApiError.prototype.constructor = ApiError;
+
+  /* ---------- 令牌：#t= → sessionStorage ---------- */
+  function readHashToken() {
+    var raw = String(location.hash || '').replace(/^#/, '');
+    if (!raw) return '';
+    var p;
+    try { p = new URLSearchParams(raw); } catch (e) { return ''; }
+    return String(p.get('t') || '').trim();
+  }
+  function clearHashToken() { try { history.replaceState(null, '', location.pathname); } catch (e) { /* file:// 可能被拒绝 */ } }
+  function readStoredToken() { try { return sessionStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } }
+  function saveToken(token) {
+    state.token = token;
+    try {
+      if (token) sessionStorage.setItem(TOKEN_KEY, token);
+      else sessionStorage.removeItem(TOKEN_KEY);
+    } catch (e) { /* 隐私模式下降级为内存保存 */ }
+  }
+
+  /* ---------- 请求封装 ---------- */
+  function api(path, opts) {
+    opts = opts || {};
+    var headers = { 'X-ULink-Token': state.token || '' };
+    if (opts.body) headers['Content-Type'] = 'application/json';
+    var init = { method: opts.method || 'GET', headers: headers, cache: 'no-store' };
+    if (opts.body) init.body = opts.body;
+    if (opts.signal) init.signal = opts.signal;
+    return fetch(path, init).catch(function (err) {
+      if (err && err.name === 'AbortError') throw err;
+      throw new ApiError('down', '未连接本机服务');
+    });
+  }
+  function apiJSON(path, opts) {
+    return api(path, opts).then(function (res) {
+      return res.text().then(function (raw) {
+        var data = null;
+        if (raw) { try { data = JSON.parse(raw); } catch (e) { data = null; } }
+        if (res.status === 401 || res.status === 403) throw new ApiError('unauthorized', '本地会话已失效');
+        if (!res.ok) {
+          var msg = (data && (data.message || data.error)) || '';
+          throw new ApiError('http', msg || ('本机服务返回异常（HTTP ' + res.status + '）'));
+        }
+        if (raw && data === null) throw new ApiError('http', '本机服务返回了无法解析的内容');
+        return data;
+      });
+    });
+  }
+
+  /* ---------- 工具 ---------- */
+  function pad2(n) { return n < 10 ? '0' + n : String(n); }
+  function fmtClock(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso);
+    return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+  }
+  function fmtFull(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso);
+    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' + fmtClock(iso);
+  }
+  function fmtUptime(iso) {
+    if (!iso) return '—';
+    var t = new Date(iso).getTime();
+    if (isNaN(t)) return '—';
+    var s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+    if (s < 60) return '刚刚启动';
+    var d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+    if (d > 0) return d + ' 天 ' + h + ' 小时';
+    if (h > 0) return h + ' 小时 ' + m + ' 分';
+    return m + ' 分钟';
+  }
+  function osKey(os) {
+    var o = String(os || '').toLowerCase();
+    if (o.indexOf('darwin') >= 0 || o.indexOf('mac') >= 0) return 'darwin';
+    if (o.indexOf('win') >= 0) return 'windows';
+    return 'linux';
+  }
+  function osLabel(os) {
+    if (!os) return '未知系统';
+    var key = osKey(os);
+    if (key === 'windows') return 'Windows';
+    if (key === 'darwin') return 'macOS';
+    return /linux/i.test(os) ? 'Linux' : String(os);
+  }
+  var AGENT_STATE = { online: '在线', connecting: '连接中', offline: '离线', paused: '已暂停接管' };
+  function friendlyError(msg) {
+    if (!msg) return '';
+    var text = String(msg);
+    if (/controller\s*token|token not set/i.test(text)) return '未设置控制端令牌，请在「设置」中填写';
+    if (/unauthorized|invalid token|auth failed/i.test(text)) return '令牌校验失败，请检查中继地址与令牌';
+    if (/deadline|timeout|timed out|i\/o timeout/i.test(text)) return '连接超时，正在自动重连';
+    if (/refused|no such host|dns|no route/i.test(text)) return '无法连接中继服务，请检查网络与中继地址';
+    return text;
+  }
+  function setText(node, value, fallback) {
+    if (!node) return;
+    var v = value;
+    if (v === undefined || v === null || v === '') v = fallback || '—';
+    node.textContent = String(v);
+  }
+  function toast(msg) {
+    var node = $('toast');
+    node.textContent = msg;
+    node.hidden = false;
+    clearTimeout(toast._timer);
+    toast._timer = setTimeout(function () { node.hidden = true; }, 2400);
+  }
+  function safeStore(key, value) {
+    try { if (value) localStorage.setItem(key, value); else localStorage.removeItem(key); } catch (e) { /* 忽略 */ }
+  }
+  function safeGet(key) { try { return localStorage.getItem(key) || ''; } catch (e) { return ''; } }
+
+  /* ---------- 服务状态 ---------- */
+  var SERVICE_TEXT = { unknown: '正在连接本机服务', ok: '本机服务正常', down: '未连接本机服务', error: '本机服务返回异常', unauthorized: '本地会话已失效' };
+  function setService(kind, detail) {
+    state.service = kind;
+    state.serviceDetail = detail || '';
+    renderService();
+    if (kind !== 'ok') renderUnavailable();
+  }
+  function renderService() {
+    var kind = state.service;
+    var dotClass = 'dot';
+    if (kind === 'ok') dotClass += ' on pulse';
+    else if (kind === 'down' || kind === 'error') dotClass += ' err';
+    else if (kind === 'unauthorized') dotClass += ' warn';
+    $('service-dot').className = dotClass;
+    $('service-text').textContent = SERVICE_TEXT[kind] || SERVICE_TEXT.unknown;
+    $('service-pill').title = state.serviceDetail || '';
+    var banner = $('banner');
+    if (kind === 'ok' || kind === 'unknown') { banner.hidden = true; return; }
+    banner.hidden = false;
+    banner.className = 'banner ' + (kind === 'unauthorized' ? 'warn' : 'err');
+    $('banner-dot').className = 'dot ' + (kind === 'unauthorized' ? 'warn' : 'err');
+    if (kind === 'down') {
+      $('banner-title').textContent = '未连接本机服务';
+      $('banner-text').textContent = '无法访问本机接口，请确认 U-Link 桌面端正在运行；页面每 3 秒自动重试。';
+    } else if (kind === 'unauthorized') {
+      $('banner-title').textContent = '本地会话已失效';
+      $('banner-text').textContent = '请从托盘菜单重新打开控制台。';
+    } else if (kind === 'error') {
+      $('banner-title').textContent = '本机服务返回异常';
+      $('banner-text').textContent = state.serviceDetail || '请稍后重试。';
+    } else {
+      $('banner-title').textContent = '正在连接本机服务';
+      $('banner-text').textContent = '正在读取本机状态…';
+    }
+  }
+  function noteFailure(err) {
+    if (!err || err.name === 'AbortError') return;
+    if (err.code === 'unauthorized') { setService('unauthorized'); showGate('invalid'); stopPolling(); return; }
+    if (err.code === 'down') { setService('down'); return; }
+    if (!state.status) setService('error', err.message);
+  }
+
+  /* ---------- 状态总览 ---------- */
+  function renderUnavailable() {
+    if (state.status) return;
+    var hint = state.service === 'down' ? '未连接本机服务' : (state.service === 'unauthorized' ? '需要访问令牌' : '数据暂不可用');
+    setText($('ov-state'), '未知');
+    $('ov-state-dot').className = 'dot';
+    $('ov-state-hint').textContent = hint;
+    setText($('ov-device-id'), '—');
+    setText($('ov-relay'), '—');
+    setText($('ov-ctrl'), '未知');
+    $('ov-ctrl-dot').className = 'dot';
+    $('ov-ctrl-hint').textContent = hint;
+    ['ov-version', 'ov-port', 'ov-uptime', 'ov-audit'].forEach(function (id) { setText($(id), '—'); });
+  }
+  function stateDotClass(s) {
+    if (s === 'online') return 'dot on pulse';
+    if (s === 'connecting' || s === 'paused') return 'dot warn';
+    if (s === 'offline') return 'dot err';
+    return 'dot';
+  }
+  function renderStatus() {
+    var s = state.status;
+    if (!s) { renderUnavailable(); return; }
+    var a = s.agent || {}, c = s.controller || {}, st = String(a.state || 'offline');
+    setText($('ov-state'), AGENT_STATE[st] || st, '未知');
+    $('ov-state-dot').className = stateDotClass(st);
+    var stateHint;
+    if (a.last_error) stateHint = '最近错误：' + friendlyError(a.last_error);
+    else if (st === 'paused') stateHint = '已关闭「允许被控制」，本机拒绝远程命令';
+    else if (a.connected_at) stateHint = '已连接 · ' + fmtClock(a.connected_at) + ' 起';
+    else if (st === 'connecting') stateHint = '正在连接中继服务…';
+    else if (st === 'offline') stateHint = '未连接中继服务，正在自动重试';
+    else stateHint = '—';
+    $('ov-state-hint').textContent = stateHint;
+    setText($('ov-device-id'), a.device_id, '未注册');
+    setText($('ov-relay'), a.relay, '未配置');
+    $('ov-relay-hint').textContent = a.hostname ? ('主机名 ' + a.hostname) : '用于设备间互控的中继地址';
+    if (c.enabled === false) {
+      $('ov-ctrl').textContent = '未启用';
+      $('ov-ctrl-dot').className = 'dot';
+      $('ov-ctrl-hint').textContent = '未设置控制端令牌，在「设置」中填写后即可控制其他设备';
+    } else if (c.ready) {
+      $('ov-ctrl').textContent = '就绪';
+      $('ov-ctrl-dot').className = 'dot on';
+      $('ov-ctrl-hint').textContent = '已发现 ' + (c.device_count || 0) + ' 台在线设备';
+    } else {
+      $('ov-ctrl').textContent = '未就绪';
+      $('ov-ctrl-dot').className = 'dot warn';
+      $('ov-ctrl-hint').textContent = c.error ? friendlyError(c.error) : '控制端尚未连接中继服务';
+    }
+    setText($('ov-version'), s.version, '—');
+    setText($('ov-port'), s.port ? String(s.port) : '', '—');
+    setText($('ov-uptime'), fmtUptime(s.started_at));
+    setText($('ov-audit'), typeof a.audit_count === 'number' ? (a.audit_count + ' 条') : '', '—');
+    if (s.repo_url) {
+      var repo = String(s.repo_url).replace(/\/+$/, '');
+      $('link-issue').href = repo + '/issues/new';
+      $('link-pr').href = repo + '/pulls';
+    }
+    if (!$('version-label').dataset.pinned) {
+      $('version-label').textContent = s.version ? String(s.version) : '本地服务';
+      $('version-label').dataset.pinned = '1';
+    }
+    $('status-updated').textContent = '状态更新于 ' + fmtClock(new Date().toISOString());
+    if (!state.switching) {
+      var allow = $('sw-allow'), autostart = $('sw-autostart');
+      if (document.activeElement !== allow) allow.checked = !!a.allow_control;
+      if (document.activeElement !== autostart) autostart.checked = !!(s.settings && s.settings.autostart);
+      allow.disabled = false;
+      autostart.disabled = false;
+    }
+  }
+
+  /* ---------- 设备列表 ---------- */
+  function currentDevice() {
+    for (var i = 0; i < state.devices.length; i++) {
+      if (state.devices[i] && state.devices[i].id === state.selected) return state.devices[i];
+    }
+    return null;
+  }
+  function deviceLabel(dev) { return !dev ? '' : (dev.hostname || dev.id || '未命名设备'); }
+  function emptyTextForDevices() {
+    if (state.service === 'down') return '未连接本机服务，暂时无法获取设备列表。';
+    if (state.service === 'unauthorized') return '本地会话已失效，请从托盘菜单重新打开控制台。';
+    if (state.devicesError) return state.devicesError;
+    return '暂无在线设备。请确认对方机器已运行 U-Link，并与本机连接同一个中继服务。';
+  }
+  function selectDevice(id) {
+    state.selected = id || '';
+    safeStore(DEVICE_KEY, state.selected);
+    renderDevices();
+  }
+  function devNode(dev) {
+    var active = dev.id === state.selected;
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'dev' + (active ? ' is-active' : '');
+    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    var dot = document.createElement('span');
+    dot.className = 'dot ' + (dev.online ? 'on' : 'off');
+    btn.appendChild(dot);
+    var main = document.createElement('span');
+    main.className = 'dev-main';
+    var name = document.createElement('span');
+    name.className = 'dev-name';
+    name.textContent = deviceLabel(dev);
+    name.title = deviceLabel(dev);
+    main.appendChild(name);
+    var meta = document.createElement('span');
+    meta.className = 'dev-meta';
+    [['mono', dev.id || '未知 ID'], ['', osLabel(dev.os)], ['', dev.version || '版本未知']].forEach(function (pair) {
+      var sp = document.createElement('span');
+      if (pair[0]) sp.className = pair[0];
+      sp.textContent = pair[1];
+      meta.appendChild(sp);
+    });
+    main.appendChild(meta);
+    btn.appendChild(main);
+    var badge = document.createElement('span');
+    badge.className = 'dev-badge' + (active ? ' active' : '');
+    badge.textContent = active ? '已选择' : (dev.online ? '在线' : '离线');
+    btn.appendChild(badge);
+    btn.addEventListener('click', function () { selectDevice(dev.id); });
+    return btn;
+  }
+  function renderDevices() {
+    var list = $('dev-list'), empty = $('dev-empty'), note = $('dev-note');
+    list.textContent = '';
+    $('dev-count').textContent = (state.devices.length || 0) + ' 台';
+    if (state.devicesError) {
+      note.hidden = false;
+      note.textContent = '设备列表提示：' + state.devicesError;
+    } else {
+      note.hidden = true;
+      note.textContent = '';
+    }
+    if (!state.devices.length) {
+      list.hidden = true;
+      empty.hidden = false;
+      empty.textContent = emptyTextForDevices();
+      updateTerminal();
+      return;
+    }
+    var sorted = state.devices.slice().sort(function (x, y) {
+      var xo = x && x.online ? 0 : 1, yo = y && y.online ? 0 : 1;
+      if (xo !== yo) return xo - yo;
+      return String(deviceLabel(x)).localeCompare(String(deviceLabel(y)), 'zh-Hans-CN');
+    });
+    if (!state.selected || !currentDevice()) {
+      var firstOnline = null;
+      for (var i = 0; i < sorted.length; i++) { if (sorted[i] && sorted[i].online) { firstOnline = sorted[i]; break; } }
+      state.selected = firstOnline ? firstOnline.id : (sorted[0] ? sorted[0].id : '');
+      safeStore(DEVICE_KEY, state.selected);
+    }
+    list.hidden = false;
+    empty.hidden = true;
+    for (var j = 0; j < sorted.length; j++) list.appendChild(devNode(sorted[j]));
+    updateTerminal();
+  }
+
+  /* ---------- 终端 ---------- */
+  var QUICK = {
+    windows: [['系统信息', 'systeminfo'], ['进程', 'tasklist'], ['端口', 'netstat -ano'],
+      ['磁盘', 'fsutil volume diskfree C:'], ['日志', 'wevtutil qe System /c:15 /rd:true /f:text']],
+    darwin: [['系统信息', 'uname -a'], ['进程', 'ps aux | head -n 20'], ['端口', 'lsof -nP -iTCP -sTCP:LISTEN | head -n 20'],
+      ['磁盘', 'df -h'], ['日志', 'tail -n 30 /var/log/system.log']],
+    linux: [['系统信息', 'uname -a'], ['进程', 'ps aux | head -n 20'], ['端口', 'ss -tulpn | head -n 20'],
+      ['磁盘', 'df -h'], ['日志', 'journalctl -n 30 --no-pager']]
+  };
+  function termLine(kind, text) {
+    var out = $('term-out');
+    var line = document.createElement('div');
+    line.className = 'term-line' + (kind ? ' ' + kind : '');
+    line.textContent = text;
+    out.appendChild(line);
+    while (out.childNodes.length > 1500) out.removeChild(out.firstChild);
+    out.scrollTop = out.scrollHeight;
+  }
+  function setTermStatus(text, mode) {
+    var bar = $('term-status');
+    bar.className = 'term-status' + (mode ? ' ' + mode : '');
+    var dot = bar.querySelector('.dot');
+    if (dot) dot.className = 'dot' + (mode === 'running' ? ' on pulse' : (mode === 'error' ? ' err' : ''));
+    $('term-status-text').textContent = text;
+  }
+  function renderChips(dev) {
+    var box = $('term-chips');
+    box.textContent = '';
+    var list = QUICK[dev ? osKey(dev.os) : 'linux'] || QUICK.linux;
+    var disabled = !dev || !dev.online || state.busy;
+    list.forEach(function (item) {
+      var chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'chip';
+      chip.textContent = item[0];
+      chip.title = '执行：' + item[1];
+      chip.disabled = disabled;
+      chip.addEventListener('click', function () { runCommand(item[1]); });
+      box.appendChild(chip);
+    });
+  }
+  function updateTerminal() {
+    var dev = currentDevice();
+    $('term-device').textContent = dev ? deviceLabel(dev) : '未选择设备';
+    var canRun = !!dev && !!dev.online && !state.busy && !!state.token;
+    $('term-input').disabled = !canRun;
+    $('btn-run').disabled = !canRun;
+    $('btn-cancel').disabled = !state.busy;
+    renderChips(dev);
+    if (state.busy) return;
+    if (!dev) setTermStatus('请在左侧设备列表中选择一台设备');
+    else if (!dev.online) setTermStatus('设备「' + deviceLabel(dev) + '」当前离线，无法执行命令');
+    else setTermStatus('已连接「' + deviceLabel(dev) + '」· 输入命令后按回车执行');
+  }
+
+  /* ---------- SSE 解析（兼容 CRLF 与多行 data） ---------- */
+  function parseEventBlock(raw) {
+    var name = 'message', data = [];
+    var lines = raw.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      if (!line || line.charAt(0) === ':') continue;
+      var idx = line.indexOf(':');
+      var field = idx < 0 ? line : line.slice(0, idx);
+      var value = idx < 0 ? '' : line.slice(idx + 1).replace(/^ /, '');
+      if (field === 'event') name = value.trim();
+      else if (field === 'data') data.push(value);
+    }
+    if (!data.length && name === 'message') return null;
+    return { name: name, data: data.join('\n') };
+  }
+  function parseJSON(text) { try { return JSON.parse(text); } catch (e) { return null; } }
+  function consumeSSE(res, onEvent) {
+    if (!res.body || !res.body.getReader) {
+      return res.text().then(function (raw) { if (raw && raw.trim()) onEvent({ name: 'raw', data: raw }); });
+    }
+    var reader = res.body.getReader();
+    var decoder = new TextDecoder('utf-8');
+    var buf = '';
+    function pump() {
+      return reader.read().then(function (result) {
+        if (result.done) {
+          buf = buf.replace(/\r\n/g, '\n');
+          if (buf.trim()) { var tail = parseEventBlock(buf); if (tail) onEvent(tail); }
+          return;
+        }
+        buf += decoder.decode(result.value, { stream: true });
+        buf = buf.replace(/\r\n/g, '\n');
+        var idx, pending = [];
+        while ((idx = buf.indexOf('\n\n')) >= 0) { pending.push(buf.slice(0, idx)); buf = buf.slice(idx + 2); }
+        for (var i = 0; i < pending.length; i++) {
+          var evt = parseEventBlock(pending[i]);
+          if (evt) onEvent(evt);
+        }
+        return pump();
+      });
+    }
+    return pump();
+  }
+  function appendOutput(text, isErr) {
+    if (text === undefined || text === null || text === '') return;
+    var value = String(text).replace(/\n$/, '');
+    if (value) termLine(isErr ? 'err' : 'out', value);
+  }
+  function extractMessage(raw) {
+    if (!raw) return '';
+    var data = parseJSON(raw);
+    if (data && (data.message || data.error)) return String(data.message || data.error);
+    return String(raw).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+  }
+
+  /* ---------- 执行命令 ---------- */
+  function runCommand(command) {
+    var dev = currentDevice();
+    var text = String(command === undefined || command === null ? '' : command).trim();
+    if (!state.token) { toast('缺少访问令牌，请从托盘菜单重新打开控制台'); return; }
+    if (!dev) { toast('请先在设备列表中选择一台设备'); return; }
+    if (!dev.online) { toast('设备当前离线，无法执行命令'); return; }
+    if (state.busy) { toast('上一条命令仍在执行，可先点取消'); return; }
+    if (!text) return;
+
+    $('term-input').value = '';
+    state.busy = true;
+    state.requestId = '';
+    termLine('cmd', '$ ' + text);
+    setTermStatus('正在执行 · 等待设备返回输出', 'running');
+    updateTerminal();
+
+    var controller = new AbortController();
+    state.streamAbort = controller;
+    var finished = false, exitCode = null, errorMessage = '', sawMeta = false, cancelled = false, finalStatus = null;
+
+    function finish() {
+      if (finished) return;
+      finished = true;
+      state.busy = false;
+      state.requestId = '';
+      state.streamAbort = null;
+      updateTerminal();
+      if (finalStatus) setTermStatus(finalStatus.text, finalStatus.mode);
+      loadLogs();
+      loadStatus();
+    }
+    function onEvent(evt) {
+      var data = parseJSON(evt.data);
+      if (evt.name === 'meta') {
+        sawMeta = true;
+        if (data && data.request_id) { state.requestId = String(data.request_id); $('btn-cancel').disabled = false; }
+        return;
+      }
+      if (evt.name === 'chunk') {
+        if (data) appendOutput(data.text, String(data.stream || '').toLowerCase() === 'stderr');
+        else appendOutput(evt.data, false);
+        return;
+      }
+      if (evt.name === 'done') {
+        if (data && typeof data.exit_code === 'number') exitCode = data.exit_code;
+        return;
+      }
+      if (evt.name === 'error') {
+        errorMessage = (data && (data.message || data.error)) || extractMessage(evt.data) || '未知错误';
+        return;
+      }
+      if (evt.name === 'raw' || evt.name === 'message') appendOutput(evt.data, false);
+    }
+
+    var payload = { device: dev.id, command: text, shell: $('term-shell').value || '' };
+    api('/api/exec', { method: 'POST', body: JSON.stringify(payload), signal: controller.signal }).then(function (res) {
+      var contentType = String(res.headers.get('content-type') || '').toLowerCase();
+      if (res.status === 401 || res.status === 403) throw new ApiError('unauthorized', '本地会话已失效');
+      if (!res.ok || contentType.indexOf('application/json') >= 0) {
+        return res.text().then(function (raw) {
+          throw new ApiError('http', extractMessage(raw) || ('执行失败（HTTP ' + res.status + '）'));
+        });
+      }
+      if (contentType.indexOf('text/event-stream') >= 0) return consumeSSE(res, onEvent);
+      return res.text().then(function (raw) {
+        if (raw && raw.trim()) {
+          termLine('sys', '本机服务未按流式返回，以下为完整输出');
+          appendOutput(raw, false);
+        }
+      });
+    }).catch(function (err) {
+      if (err && err.name === 'AbortError') { cancelled = true; termLine('sys', '已取消执行'); return; }
+      if (err && err.code === 'unauthorized') {
+        termLine('err', '本地会话已失效，请从托盘菜单重新打开控制台');
+        noteFailure(err);
+        return;
+      }
+      if (err && err.code === 'down') { termLine('err', '未连接本机服务，执行失败'); noteFailure(err); return; }
+      errorMessage = errorMessage || (err && err.message) || '执行失败';
+    }).then(function () {
+      if (cancelled) {
+        finalStatus = { text: '已取消执行', mode: '' };
+      } else if (errorMessage) {
+        termLine('err', '错误：' + errorMessage);
+        finalStatus = { text: '执行失败 · ' + errorMessage, mode: 'error' };
+      } else if (exitCode !== null) {
+        if (exitCode === 0) {
+          termLine('sys', '命令结束 · 退出码 0');
+          finalStatus = { text: '执行完成 · 退出码 0', mode: '' };
+        } else {
+          termLine('err', '命令结束 · 退出码 ' + exitCode);
+          finalStatus = { text: '执行完成 · 退出码 ' + exitCode, mode: 'error' };
+        }
+      } else if (sawMeta) {
+        termLine('sys', '连接已结束');
+        finalStatus = { text: '连接已结束', mode: '' };
+      }
+      finish();
+    });
+  }
+  function cancelRun() {
+    if (!state.busy) return;
+    function abortNow() {
+      if (state.streamAbort) { try { state.streamAbort.abort(); } catch (e) { /* 忽略 */ } }
+      termLine('sys', '已请求取消当前命令');
+      setTermStatus('正在取消…', 'running');
+    }
+    if (!state.requestId) { abortNow(); return; }
+    api('/api/exec/cancel', { method: 'POST', body: JSON.stringify({ request_id: state.requestId }) })
+      .then(abortNow, abortNow);
+  }
+
+  /* ---------- 设置 ---------- */
+  function fillSettings(s) {
+    if (!s) return;
+    $('set-relay').value = s.relay || '';
+    $('set-device-id').value = s.device_id || '';
+    $('set-agent-token').value = '';
+    $('set-agent-token').placeholder = s.agent_token_set ? '已设置，重新填写可覆盖' : '未设置，请填写被控端令牌';
+    $('agent-token-state').textContent = s.agent_token_set ? '已设置，留空保持不变' : '尚未设置，被控端无法注册到中继';
+    $('set-controller-token').value = '';
+    $('set-controller-token').placeholder = s.controller_token_set ? '已设置，重新填写可覆盖' : '未设置，留空保持不变';
+    $('ctrl-token-state').textContent = s.controller_token_set ? '已设置控制端令牌，可控制其他设备' : '未设置则无法控制其他设备';
+    $('set-prefix').value = s.device_prefix_filter || '';
+    $('set-show-all').checked = !!s.show_all_devices;
+    $('settings-hint').textContent = '设置已加载';
+  }
+  function postSettings(body) {
+    return apiJSON('/api/settings', { method: 'POST', body: JSON.stringify(body) });
+  }
+  function saveSettings() {
+    if (!state.settings) { toast('设置尚未加载完成'); return; }
+    var orig = state.settings, body = {};
+    var relay = $('set-relay').value.trim();
+    var deviceId = $('set-device-id').value.trim();
+    var prefix = $('set-prefix').value.trim();
+    var agentToken = $('set-agent-token').value;
+    var controllerToken = $('set-controller-token').value;
+    var showAll = $('set-show-all').checked;
+    if (relay !== (orig.relay || '')) body.relay = relay;
+    if (deviceId !== (orig.device_id || '')) body.device_id = deviceId;
+    if (prefix !== (orig.device_prefix_filter || '')) body.device_prefix_filter = prefix;
+    if (showAll !== !!orig.show_all_devices) body.show_all_devices = showAll;
+    if (agentToken) body.agent_token = agentToken;
+    if (controllerToken) body.controller_token = controllerToken;
+    if (!Object.keys(body).length) { $('settings-saved').textContent = '没有需要保存的修改'; return; }
+
+    var btn = $('btn-save-settings');
+    btn.disabled = true;
+    $('settings-saved').textContent = '正在保存…';
+    postSettings(body).then(function (res) {
+      $('settings-saved').textContent = (res && res.restart_required) ? '已保存，部分设置需要重启连线后生效' : '已保存';
+      loadSettings();
+      loadStatus();
+    }).catch(function (err) {
+      noteFailure(err);
+      $('settings-saved').textContent = '保存失败：' + ((err && err.message) || '未知错误');
+    }).then(function () {
+      btn.disabled = false;
+      setTimeout(function () { $('settings-saved').textContent = ''; }, 6000);
+    });
+  }
+  function clearControllerToken() {
+    if (!state.settings) { toast('设置尚未加载完成'); return; }
+    if (!window.confirm('确定清除控制端令牌？清除后本机将无法控制其他设备。')) return;
+    postSettings({ controller_token: '' }).then(function () {
+      toast('已清除控制端令牌');
+      loadSettings();
+      loadStatus();
+    }).catch(function (err) {
+      noteFailure(err);
+      toast('清除失败：' + ((err && err.message) || '未知错误'));
+    });
+  }
+  function toggleAgentToken() {
+    var input = $('set-agent-token'), btn = $('btn-toggle-agent-token');
+    if (input.type === 'password') { input.type = 'text'; btn.textContent = '隐藏'; }
+    else { input.type = 'password'; btn.textContent = '显示'; }
+  }
+  function onSwitchChange(key, input, onText, offText) {
+    var want = input.checked, body = {};
+    body[key] = want;
+    state.switching = true;
+    input.disabled = true;
+    postSettings(body).then(function (res) {
+      toast(want ? onText : offText);
+      if (res && res.restart_required) toast('该设置需要重启连线后生效');
+    }).catch(function (err) {
+      input.checked = !want;
+      noteFailure(err);
+      toast('保存失败：' + ((err && err.message) || '未知错误'));
+    }).then(function () {
+      state.switching = false;
+      input.disabled = false;
+      loadStatus();
+      if (key === 'autostart') loadSettings();
+    });
+  }
+
+  /* ---------- 本机审计日志 ---------- */
+  function logRow(item) {
+    var row = document.createElement('div');
+    row.className = 'log-row';
+    var level = String((item && item.level) || '').toLowerCase();
+    if (level === 'error') row.className += ' error';
+    else if (level === 'warn') row.className += ' warn';
+    var ts = document.createElement('span');
+    ts.className = 'log-ts';
+    ts.textContent = fmtClock(item && item.ts);
+    ts.title = fmtFull(item && item.ts);
+    row.appendChild(ts);
+    var kindKey = String((item && item.kind) || '').toLowerCase();
+    var kind = document.createElement('span');
+    kind.className = 'log-kind' + (kindKey === 'audit' ? ' audit' : '');
+    kind.textContent = kindKey === 'audit' ? '审计' : (kindKey === 'app' ? '应用' : (kindKey || '日志'));
+    row.appendChild(kind);
+    var text = document.createElement('span');
+    text.className = 'log-text';
+    text.textContent = (item && item.text) || '';
+    row.appendChild(text);
+    return row;
+  }
+  function renderLogs() {
+    var box = $('log-list');
+    box.textContent = '';
+    var logs = state.logs || [];
+    $('audit-count').textContent = logs.length + ' 条';
+    if (!logs.length) {
+      var empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = state.service === 'ok' ? '暂无日志记录' : '未连接本机服务，暂时无法读取日志。';
+      box.appendChild(empty);
+      return;
+    }
+    var sorted = logs.slice().sort(function (x, y) {
+      var xt = x && x.ts ? new Date(x.ts).getTime() : 0;
+      var yt = y && y.ts ? new Date(y.ts).getTime() : 0;
+      return yt - xt;
+    });
+    for (var i = 0; i < sorted.length && i < LOG_LIMIT; i++) box.appendChild(logRow(sorted[i]));
+  }
+
+  /* ---------- 数据加载 ---------- */
+  function loadStatus() {
+    if (state.statusBusy) return;
+    state.statusBusy = true;
+    return apiJSON('/api/status').then(function (data) {
+      state.status = data || null;
+      setService('ok');
+      renderStatus();
+    }).catch(function (err) {
+      noteFailure(err);
+      renderStatus();
+    }).then(function () { state.statusBusy = false; });
+  }
+  function loadDevices() {
+    if (state.devicesBusy) return;
+    state.devicesBusy = true;
+    return apiJSON('/api/devices').then(function (data) {
+      state.devices = (data && Array.isArray(data.devices)) ? data.devices : [];
+      state.devicesError = (data && data.error) ? friendlyError(data.error) : '';
+      if (state.service !== 'ok' && !state.status) setService('ok');
+      renderDevices();
+    }).catch(function (err) {
+      state.devices = [];
+      state.devicesError = '';
+      noteFailure(err);
+      renderDevices();
+    }).then(function () { state.devicesBusy = false; });
+  }
+  function loadLogs() {
+    if (state.logsBusy) return;
+    state.logsBusy = true;
+    return apiJSON('/api/logs?limit=' + LOG_LIMIT).then(function (data) {
+      state.logs = (data && Array.isArray(data.logs)) ? data.logs : [];
+      renderLogs();
+    }).catch(function (err) {
+      noteFailure(err);
+      if (!state.logs.length) { state.logs = []; renderLogs(); }
+    }).then(function () { state.logsBusy = false; });
+  }
+  function loadSettings() {
+    return apiJSON('/api/settings').then(function (data) {
+      state.settings = data || null;
+      fillSettings(state.settings);
+    }).catch(function (err) {
+      noteFailure(err);
+      $('settings-hint').textContent = state.service === 'down' ? '未连接本机服务' : '设置读取失败';
+    });
+  }
+  function refreshAll() {
+    loadStatus();
+    loadDevices();
+    loadLogs();
+    loadSettings();
+  }
+
+  /* ---------- 轮询 ---------- */
+  function startPolling() {
+    stopPolling();
+    state.timers.status = setInterval(function () { if (!document.hidden) loadStatus(); }, STATUS_MS);
+    state.timers.devices = setInterval(function () { if (!document.hidden) loadDevices(); }, DEVICES_MS);
+    state.timers.logs = setInterval(function () { if (!document.hidden) loadLogs(); }, LOGS_MS);
+  }
+  function stopPolling() {
+    ['status', 'devices', 'logs'].forEach(function (key) {
+      if (state.timers[key]) { clearInterval(state.timers[key]); state.timers[key] = null; }
+    });
+  }
+
+  /* ---------- 门禁（无令牌 / 会话失效 / 无后端） ---------- */
+  function setGateStatus(text) { $('gate-status').textContent = text; }
+  function showGate(reason) {
+    if (reason === 'invalid') state.gateReason = 'invalid';
+    $('app').hidden = true;
+    $('gate').hidden = false;
+    $('gate-title').textContent = '需要访问令牌';
+    $('gate-desc').textContent = '本地控制台只接受带令牌的请求。请从托盘菜单选择「打开控制台」，浏览器会自动带上令牌。';
+    if (state.gateReason === 'invalid') {
+      $('gate-title').textContent = '本地会话已失效';
+      $('gate-desc').textContent = '请从托盘菜单重新打开控制台，或粘贴托盘复制的新令牌。';
+      setGateStatus('本地会话已失效，正在等待新的令牌。');
+    }
+    setTimeout(function () {
+      var input = $('gate-token');
+      if (input && !$('gate').hidden) input.focus();
+    }, 30);
+  }
+  function probeService() {
+    return fetch('/api/status', { headers: { 'X-ULink-Token': state.token || '' }, cache: 'no-store' }).then(function (res) {
+      if (res.status === 401 || res.status === 403) setGateStatus('本机服务已启动，等待有效令牌。');
+      else if (res.ok) setGateStatus('本机服务已启动。');
+      else setGateStatus('本机服务返回异常（HTTP ' + res.status + '）。');
+      if (state.gateReason === 'missing') {
+        $('gate-title').textContent = '需要访问令牌';
+        $('gate-desc').textContent = '本地控制台只接受带令牌的请求。请从托盘菜单选择「打开控制台」，浏览器会自动带上令牌。';
+      }
+    }).catch(function () {
+      setGateStatus('未连接本机服务：无法访问本机接口，请确认 U-Link 桌面端正在运行；页面会自动重试。');
+      if (state.gateReason === 'missing') {
+        $('gate-title').textContent = '未连接本机服务';
+        $('gate-desc').textContent = '当前无法访问本机接口。请先启动 U-Link 桌面端，再从托盘菜单打开控制台。';
+      }
+    });
+  }
+  function submitGate(evt) {
+    evt.preventDefault();
+    var token = $('gate-token').value.trim();
+    if (!token) { setGateStatus('请先粘贴令牌。'); return; }
+    var btn = $('gate-submit');
+    btn.disabled = true;
+    setGateStatus('正在验证令牌…');
+    fetch('/api/status', { headers: { 'X-ULink-Token': token }, cache: 'no-store' }).then(function (res) {
+      if (res.status === 401 || res.status === 403) { setGateStatus('令牌无效，请核对后重试。'); return; }
+      if (!res.ok) { setGateStatus('本机服务返回异常（HTTP ' + res.status + '）。'); return; }
+      saveToken(token);
+      $('gate-token').value = '';
+      setGateStatus('令牌校验通过。');
+      startConsole();
+      toast('已进入控制台');
+    }).catch(function () {
+      setGateStatus('未连接本机服务：无法访问本机接口，请确认 U-Link 桌面端正在运行。');
+    }).then(function () { btn.disabled = false; });
+  }
+  function startConsole() {
+    $('gate').hidden = true;
+    $('app').hidden = false;
+    state.gateReason = 'missing';
+    state.service = 'unknown';
+    renderService();
+    refreshAll();
+    startPolling();
+  }
+
+  /* ---------- 事件绑定 ---------- */
+  function bindEvents() {
+    $('btn-refresh-all').addEventListener('click', function () { refreshAll(); toast('正在刷新'); });
+    $('btn-refresh-dev').addEventListener('click', function () { loadDevices(); loadStatus(); });
+    $('btn-refresh-logs').addEventListener('click', loadLogs);
+    $('btn-restart-agent').addEventListener('click', function () {
+      var btn = $('btn-restart-agent');
+      btn.disabled = true;
+      apiJSON('/api/agent/restart', { method: 'POST', body: '{}' }).then(function () {
+        toast('已请求重启连线');
+        setTimeout(function () { loadStatus(); loadDevices(); }, 900);
+      }).catch(function (err) {
+        noteFailure(err);
+        toast('重启失败：' + ((err && err.message) || '未知错误'));
+      }).then(function () { setTimeout(function () { btn.disabled = false; }, 1200); });
+    });
+    $('btn-copy-id').addEventListener('click', function () {
+      var id = (state.status && state.status.agent) ? state.status.agent.device_id : '';
+      if (!id) { toast('尚无本机 ID'); return; }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(id).then(function () { toast('已复制本机 ID'); }, function () { toast('复制失败，请手动选择文本'); });
+      } else {
+        toast('当前浏览器不支持自动复制');
+      }
+    });
+    $('sw-allow').addEventListener('change', function (e) {
+      onSwitchChange('allow_control', e.target, '已开启允许被控制', '已关闭允许被控制');
+    });
+    $('sw-autostart').addEventListener('change', function (e) {
+      onSwitchChange('autostart', e.target, '已开启开机自启', '已关闭开机自启');
+    });
+    $('btn-save-settings').addEventListener('click', saveSettings);
+    $('btn-clear-controller-token').addEventListener('click', clearControllerToken);
+    $('btn-toggle-agent-token').addEventListener('click', toggleAgentToken);
+    $('term-input').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); runCommand($('term-input').value); }
+    });
+    $('btn-run').addEventListener('click', function () { runCommand($('term-input').value); });
+    $('btn-cancel').addEventListener('click', cancelRun);
+    $('btn-clear').addEventListener('click', function () {
+      $('term-out').textContent = '';
+      termLine('sys', '输出已清空');
+    });
+    $('term-shell').addEventListener('change', function () { safeStore(SHELL_KEY, $('term-shell').value); });
+    $('banner-retry').addEventListener('click', refreshAll);
+    $('gate-form').addEventListener('submit', submitGate);
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden && state.token && !$('app').hidden && state.service !== 'unauthorized') refreshAll();
+    });
+  }
+
+  /* ---------- 启动 ---------- */
+  function boot() {
+    bindEvents();
+    var hashToken = readHashToken();
+    if (hashToken) { saveToken(hashToken); clearHashToken(); }
+    else state.token = readStoredToken();
+    var savedDevice = safeGet(DEVICE_KEY);
+    if (savedDevice) state.selected = savedDevice;
+    var savedShell = safeGet(SHELL_KEY);
+    if (savedShell) $('term-shell').value = savedShell;
+    updateTerminal();
+    if (state.token) {
+      startConsole();
+    } else {
+      showGate('missing');
+      probeService();
+      setInterval(function () { if (!document.hidden && !$('gate').hidden) probeService(); }, 5000);
+    }
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
+</script>
+</body>
+</html>

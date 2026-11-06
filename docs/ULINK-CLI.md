@@ -204,7 +204,7 @@ Claude Code / DSH / Codex 配置：
 {
   "mcpServers": {
     "ulink": {
-      "command": "/Users/you/claude/远程无头运维工具cli/build/ulink",
+      "command": "/absolute/path/to/build/ulink",
       "args": ["mcp"]
     }
   }

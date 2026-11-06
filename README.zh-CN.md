@@ -16,6 +16,20 @@ MCP 服务通过 stdio 启动，权限等同于运行它的本机用户。MCP �
 - **不是**用来在未经同意的情况下控制客户机器。
 - **不是**公共 relay 服务。
 
+## 桌面版（macOS 菜单栏 / Windows 托盘）
+
+`cmd/link` 把同一套 relay / agent / controller 做成常驻桌面应用：一个状态点看在线没在线，
+点开是本地控制台（设备列表 + 流式终端），配对一次即可互控。
+
+```bash
+make link                 # macOS 菜单栏程序（需要 cgo）
+make link-windows         # Windows 托盘程序
+make link-package-mac     # 打包 build/U-Link.app + zip
+```
+
+桌面版**首次运行是未配置状态**：在控制台「设置」里填自己的 relay 地址、被控端令牌和控制端令牌。
+完整说明（构建、首次配置、安全注意、卸载）见 [docs/DESKTOP-APP.md](docs/DESKTOP-APP.md)。
+
 ## 架构
 
 ![U-Link 架构](docs/images/architecture.svg)

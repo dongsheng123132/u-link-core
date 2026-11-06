@@ -9,7 +9,9 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    # macOS runner so the menu bar app can be built with cgo; the other
+    # targets cross-compile from here with cgo disabled.
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -30,18 +32,29 @@ jobs:
             "darwin arm64"; do
             set -- $target
             EXT="${3:-}"
-            GOOS=$1 GOARCH=$2 go build -trimpath -ldflags="${LDFLAGS}" \
+            CGO_ENABLED=0 GOOS=$1 GOARCH=$2 go build -trimpath -ldflags="${LDFLAGS}" \
               -o "dist/agent-$1-$2${EXT}" ./cmd/agent
-            GOOS=$1 GOARCH=$2 go build -trimpath -ldflags="${LDFLAGS}" \
+            CGO_ENABLED=0 GOOS=$1 GOARCH=$2 go build -trimpath -ldflags="${LDFLAGS}" \
               -o "dist/remote-agent-$1-$2${EXT}" ./cmd/cli
-            GOOS=$1 GOARCH=$2 go build -trimpath -ldflags="${LDFLAGS}" \
+            CGO_ENABLED=0 GOOS=$1 GOARCH=$2 go build -trimpath -ldflags="${LDFLAGS}" \
               -o "dist/ulink-$1-$2${EXT}" ./cmd/ulink
           done
-          GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="${LDFLAGS}" \
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="${LDFLAGS}" \
             -o dist/server-linux-amd64 ./cmd/server
-          GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="${LDFLAGS}" \
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="${LDFLAGS}" \
             -o dist/server-linux-arm64 ./cmd/server
-          (cd dist && sha256sum * > SHA256SUMS)
+
+          # Desktop app: macOS needs cgo for the StatusItem / menu bar.
+          CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="${LDFLAGS}" \
+            -o dist/ulink-desktop-darwin-arm64 ./cmd/link
+          CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags="${LDFLAGS}" \
+            -o dist/ulink-desktop-darwin-amd64 ./cmd/link
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath \
+            -ldflags="${LDFLAGS} -H windowsgui" -o dist/ulink-desktop-windows-amd64.exe ./cmd/link
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="${LDFLAGS}" \
+            -o dist/ulink-desktop-linux-amd64 ./cmd/link
+
+          (cd dist && shasum -a 256 * > SHA256SUMS)
           ls -la dist/
 
       - name: Create GitHub Release
