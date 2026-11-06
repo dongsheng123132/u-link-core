@@ -169,6 +169,20 @@ Endpoints:
   `config.json` to make that explicit and hide the controller side entirely.
 - Push/pull is restricted to `file_roots` (default: home + temp).
 
+## Unsigned builds
+
+Release binaries are not signed. Windows SmartScreen may warn and macOS
+Gatekeeper may block a downloaded `.app`. Verify the download against the
+release's `SHA256SUMS`, then allow it once:
+
+```bash
+shasum -a 256 U-Link.app.zip        # compare with SHA256SUMS
+xattr -dr com.apple.quarantine /Applications/U-Link.app   # macOS
+```
+
+Building from source (`make link`) avoids trusting a binary altogether. See
+[SECURITY.md](../SECURITY.md#unsigned-builds).
+
 ## Uninstall
 
 - macOS: quit from the menu, then remove `/Applications/U-Link.app` and the

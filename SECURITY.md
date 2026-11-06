@@ -37,6 +37,47 @@ Use U-Link only on devices you own or on devices whose users explicitly
 consented to remote administration. Do not use it for covert access,
 persistence, surveillance, or control of third-party devices without permission.
 
+## Token scope
+
+There are two tokens and they are deliberately separate:
+
+| Token | What it can do | What it cannot do |
+|---|---|---|
+| `AGENT_TOKEN` | open an agent socket and request registration | run commands, list devices, pair or revoke, act as a controller |
+| `CONTROLLER_TOKEN` | list devices, execute commands, push/pull files, issue/approve pairing codes | register this machine as an agent |
+
+`AGENT_TOKEN` alone does not give access to a machine. Registration still needs
+an Ed25519 device key plus either a one-time pairing code or an operator
+approval (`pair approve`) on the controller side. An already-enrolled device
+must prove possession of its private key with a fresh nonce on every reconnect,
+and a device ID bound to one key cannot be re-bound without an explicit revoke.
+
+The `AGENT_TOKEN` is therefore "registration-only", but treat it as sensitive:
+anyone holding it can create pending enrollment requests for your relay. Keep it
+out of public channels, and rotate it (change the relay env and restart) if it
+leaks. Rotating it requires re-running agents with the new value.
+
+The desktop dashboard returns enrollment commands that contain `AGENT_TOKEN`
+(it is what the new machine needs) but never `CONTROLLER_TOKEN`. The settings
+API only ever reports whether a token is set, never its value.
+
+## Unsigned builds
+
+Official builds are **not code-signed or notarised**. This is a deliberate
+choice for an open-source, self-hosted project: signing certificates cost money
+and tie releases to one vendor account.
+
+Consequences:
+
+- Windows SmartScreen may warn on first run; macOS Gatekeeper may refuse to open
+  a downloaded `.app`.
+- You can verify what you downloaded without trusting a signature: every
+  release ships `SHA256SUMS`, so compare with `shasum -a 256 <file>`.
+- macOS: after checking the hash, allow the app with
+  `xattr -dr com.apple.quarantine /Applications/U-Link.app` (or right-click →
+  Open once). Prefer building from source with `make link` if you would rather
+  not trust a binary at all.
+
 ## Reporting a vulnerability
 
 Email: hefangsheng@gmail.com (PGP not configured).
