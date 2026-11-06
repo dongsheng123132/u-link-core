@@ -6,6 +6,8 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -96,5 +98,49 @@ func TestConfigWithPinWorksForIPLiteralRelay(t *testing.T) {
 	state.PeerCertificates[0].IPAddresses = []net.IP{net.ParseIP("10.0.0.7")}
 	if err := cfg.VerifyConnection(state); err == nil {
 		t.Fatal("certificate for another IP was accepted")
+	}
+}
+
+// The tests below exercise a real TLS handshake, not just the verifier
+// callback: empty pin must use system trust (self-signed fails), a matching
+// pin must accept a self-signed relay addressed by IP, and a matching pin
+// must still fail when the certificate is for another host.
+func TestConfigWithoutPinRejectsSelfSignedRelay(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer srv.Close()
+
+	client := &http.Client{Transport: &http.Transport{TLSClientConfig: Config(srv.URL, "")}}
+	if _, err := client.Get(srv.URL); err == nil {
+		t.Fatal("a self-signed relay must be rejected when no pin is configured")
+	}
+}
+
+func TestConfigWithPinAcceptsSelfSignedRelayByIP(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer srv.Close()
+
+	sum := sha256.Sum256(srv.Certificate().Raw)
+	client := &http.Client{Transport: &http.Transport{
+		TLSClientConfig: Config(srv.URL, hex.EncodeToString(sum[:])),
+	}}
+	resp, err := client.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("IP-addressed relay with the right pin was rejected: %v", err)
+	}
+	resp.Body.Close()
+}
+
+func TestConfigWithPinRejectsHostnameMismatch(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer srv.Close()
+
+	sum := sha256.Sum256(srv.Certificate().Raw)
+	// Correct fingerprint, but the caller believes it is dialing a host
+	// the certificate does not cover (httptest covers *.example.com).
+	client := &http.Client{Transport: &http.Transport{
+		TLSClientConfig: Config("wss://attacker.example.net:443/ws/agent", hex.EncodeToString(sum[:])),
+	}}
+	if _, err := client.Get(srv.URL); err == nil {
+		t.Fatal("a matching pin must not excuse a hostname mismatch")
 	}
 }
