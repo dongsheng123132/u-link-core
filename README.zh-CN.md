@@ -27,7 +27,9 @@ make link-windows         # Windows 托盘程序
 make link-package-mac     # 打包 build/U-Link.app + zip
 ```
 
-桌面版**首次运行是未配置状态**：在控制台「设置」里填自己的 relay 地址、被控端令牌和控制端令牌。
+桌面版**首次运行是未配置状态**：在控制台「设置」里填自己的 relay 地址、被控端令牌、控制端令牌，
+自签名 relay 还要填 TLS 证书指纹。控制台还带「首次配置」清单、「一键自检」（中继/TLS/令牌/代理/端口，
+每项给下一步）和「添加设备」命令生成器。
 完整说明（构建、首次配置、安全注意、卸载）见 [docs/DESKTOP-APP.md](docs/DESKTOP-APP.md)。
 
 ## 架构

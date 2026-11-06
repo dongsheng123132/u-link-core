@@ -39,8 +39,11 @@ make link-windows         # Windows tray app
 make link-package-mac     # build/U-Link.app + zip
 ```
 
-The desktop app ships **unconfigured**: set your relay URL, agent token and
-controller token in the dashboard's 设置 card on first run. See
+The desktop app ships **unconfigured**: set your relay URL, agent token,
+controller token and (for self-signed relays) the TLS pin in the dashboard's
+设置 card on first run. The dashboard also has a first-run checklist, a
+one-click self-check (relay / TLS / tokens / proxy / port, each with a next
+step) and an add-device command generator. See
 [docs/DESKTOP-APP.md](docs/DESKTOP-APP.md) for the full walkthrough, security
 notes and uninstall steps.
 
