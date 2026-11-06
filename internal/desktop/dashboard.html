@@ -21,7 +21,7 @@
      失败 event: error data:{message} 后关闭流。取消：POST /api/exec/cancel {request_id}。
   5. GET /api/logs?limit=N → {logs:[{ts,kind:"app"|"audit",level:"info"|"warn"|"error",text}]}。
   6. GET /api/settings 不回显 token 明文，只给 agent_token_set / controller_token_set 布尔值；其余字段
-     relay/device_id/allow_control/autostart/device_prefix_filter/show_all_devices。POST /api/settings 任意子集：
+     relay/device_id/allow_control/autostart/device_prefix_filter/show_all_devices/tls_pin。POST /api/settings 任意子集：
      agent_token/controller_token 传空字符串=清除、不传=不变；relay/agent_token/device_id 改动返回
      restart_required:true；返回 {ok,restart_required}。
   7. POST /api/agent/restart → {ok}。
@@ -269,6 +269,7 @@ button{font:inherit}
           <div class="field"><label for="set-device-id">本机设备 ID</label><input class="input mono" id="set-device-id" type="text" autocomplete="off" placeholder="例如 mac-a1b2"><span class="hint">留空则每次启动随机生成；修改后需重启连线</span></div>
           <div class="field"><label for="set-agent-token">被控端令牌</label><div class="input-group"><input class="input mono" id="set-agent-token" type="password" autocomplete="off" placeholder="未设置"><button class="btn sm" type="button" id="btn-toggle-agent-token">显示</button></div><span class="hint" id="agent-token-state">已设置时留空表示不修改</span></div>
           <div class="field"><label for="set-controller-token">控制端令牌</label><div class="input-group"><input class="input mono" id="set-controller-token" type="password" autocomplete="off" placeholder="未设置"><button class="btn sm" type="button" id="btn-clear-controller-token">清除</button></div><span class="hint" id="ctrl-token-state">未设置则无法控制其他设备</span></div>
+          <div class="field"><label for="set-tls-pin">TLS 证书指纹</label><input class="input mono" id="set-tls-pin" type="text" autocomplete="off" placeholder="自签名 relay 的 SHA-256 指纹"><span class="hint">自签名 relay 必填；用受信任 CA 证书时留空</span></div>
           <div class="field"><label for="set-prefix">设备前缀过滤</label><input class="input mono" id="set-prefix" type="text" autocomplete="off" placeholder="例如 pc-"><span class="hint">只显示设备 ID 匹配该前缀的设备</span></div>
           <div class="field"><label>显示范围</label><label class="check"><input type="checkbox" id="set-show-all"> 显示所有设备（忽略前缀过滤）</label><span class="hint">关闭后只显示自有机群</span></div>
         </div>
@@ -881,6 +882,7 @@ button{font:inherit}
     $('set-controller-token').value = '';
     $('set-controller-token').placeholder = s.controller_token_set ? '已设置，重新填写可覆盖' : '未设置，留空保持不变';
     $('ctrl-token-state').textContent = s.controller_token_set ? '已设置控制端令牌，可控制其他设备' : '未设置则无法控制其他设备';
+    $('set-tls-pin').value = s.tls_pin || '';
     $('set-prefix').value = s.device_prefix_filter || '';
     $('set-show-all').checked = !!s.show_all_devices;
     $('settings-hint').textContent = '设置已加载';
@@ -896,6 +898,7 @@ button{font:inherit}
     var prefix = $('set-prefix').value.trim();
     var agentToken = $('set-agent-token').value;
     var controllerToken = $('set-controller-token').value;
+    var tlsPin = $('set-tls-pin').value.trim();
     var showAll = $('set-show-all').checked;
     if (relay !== (orig.relay || '')) body.relay = relay;
     if (deviceId !== (orig.device_id || '')) body.device_id = deviceId;
@@ -903,6 +906,7 @@ button{font:inherit}
     if (showAll !== !!orig.show_all_devices) body.show_all_devices = showAll;
     if (agentToken) body.agent_token = agentToken;
     if (controllerToken) body.controller_token = controllerToken;
+    if (tlsPin !== (orig.tls_pin || '')) body.tls_pin = tlsPin;
     if (!Object.keys(body).length) { $('settings-saved').textContent = '没有需要保存的修改'; return; }
 
     var btn = $('btn-save-settings');

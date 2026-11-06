@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -150,6 +151,25 @@ func TestSettingsNeverEchoTokens(t *testing.T) {
 	}
 	if _, ok := payload["controller_token"]; ok {
 		t.Fatal("controller_token key must not exist")
+	}
+}
+
+func TestSettingsAcceptsTLSPin(t *testing.T) {
+	a := newTestApp(t)
+	a.cfgPath = filepath.Join(t.TempDir(), "config.json")
+	base := startTestServer(t, a)
+	code, body := doRequest(t, http.MethodPost, base+"/api/settings",
+		`{"tls_pin":"AA:BB:CC"}`,
+		map[string]string{"X-ULink-Token": testToken, "Content-Type": "application/json"})
+	if code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", code, body)
+	}
+	if a.snapshotConfig().TLSPin != "AA:BB:CC" {
+		t.Fatalf("tls_pin not stored: %q", a.snapshotConfig().TLSPin)
+	}
+	_, got := doRequest(t, http.MethodGet, base+"/api/settings", "", map[string]string{"X-ULink-Token": testToken})
+	if !strings.Contains(string(got), "AA:BB:CC") {
+		t.Fatalf("tls_pin not returned to the dashboard: %s", got)
 	}
 }
 

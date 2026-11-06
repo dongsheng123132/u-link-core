@@ -273,6 +273,7 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
 			"role":                 cfg.Role,
 			"http_port":            cfg.HTTPPort,
 			"pairing_code_set":     cfg.PairingCode != "",
+			"tls_pin":              cfg.TLSPin,
 			"device_key_path":      cfg.DeviceKeyPath,
 		})
 	case http.MethodPost:
@@ -295,6 +296,7 @@ func (a *App) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		Role               *string `json:"role"`
 		PairingCode        *string `json:"pairing_code"`
 		DeviceKeyPath      *string `json:"device_key_path"`
+		TLSPin             *string `json:"tls_pin"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&p); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "请求格式错误"})
@@ -363,6 +365,14 @@ func (a *App) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		if p.DeviceKeyPath != nil {
 			if v := strings.TrimSpace(*p.DeviceKeyPath); v != c.DeviceKeyPath {
 				c.DeviceKeyPath = v
+				restart = true
+			}
+		}
+		if p.TLSPin != nil {
+			// Self-hosted relays usually use a self-signed certificate;
+			// without this the agent cannot verify them at all.
+			if v := strings.TrimSpace(*p.TLSPin); v != c.TLSPin {
+				c.TLSPin = v
 				restart = true
 			}
 		}
