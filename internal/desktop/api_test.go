@@ -173,6 +173,37 @@ func TestSettingsAcceptsTLSPin(t *testing.T) {
 	}
 }
 
+func TestDoctorAPISeparatesErrorsFromWarnings(t *testing.T) {
+	a := newTestApp(t)
+	// Unreachable relay -> a hard failure; no controller token -> a warning.
+	a.cfg.Relay = "wss://127.0.0.1:1"
+	a.cfg.ControllerToken = ""
+	base := startTestServer(t, a)
+
+	code, body := doRequest(t, http.MethodGet, base+"/api/doctor", "", map[string]string{"X-ULink-Token": testToken})
+	if code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", code, body)
+	}
+	var payload struct {
+		OK     bool          `json:"ok"`
+		Fails  int           `json:"fails"`
+		Warns  int           `json:"warns"`
+		Checks []DoctorCheck `json:"checks"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if payload.OK {
+		t.Fatal("ok must be false when a check fails")
+	}
+	if payload.Fails == 0 {
+		t.Fatalf("expected at least one failure: %s", body)
+	}
+	if payload.Warns == 0 {
+		t.Fatalf("expected at least one warning: %s", body)
+	}
+}
+
 func TestExecWithoutControllerTokenIsRejected(t *testing.T) {
 	a := newTestApp(t)
 	a.cfg.ControllerToken = ""

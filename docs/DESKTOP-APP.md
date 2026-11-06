@@ -60,6 +60,48 @@ For a self-signed relay, set the TLS pin to the fingerprint printed by
 checks that the certificate is valid for the relay address you dialed, so an
 IP-addressed relay needs an IP SAN in its certificate.
 
+## Guided setup, self-check and adding a device
+
+Fresh installs are unconfigured, so the dashboard leads with a **首次配置**
+card that tracks these steps (it disappears once they are done):
+
+1. 中继地址
+2. 被控端令牌
+3. 控制端令牌
+4. TLS 证书指纹 (optional — only for self-signed relays)
+5. 连上中继 (status dot turns green)
+6. 添加并配对第二台设备
+
+Two helper cards sit next to it:
+
+- **一键自检** runs a read-only check of relay reachability, TLS trust (pin or
+  system CAs), both tokens, the local registration state, a real controller
+  RPC, proxy settings and the local port. Each line shows the result plus a
+  concrete next step, and the report can be copied to clipboard.
+- **添加设备** generates the exact command to run on the next machine, for
+  example:
+
+  ```bash
+  ulink-agent --server wss://relay.example.com:8900 --token <AGENT_TOKEN> \
+    --id win-office --tls-pin <SHA256>
+  ```
+
+  It contains the public agent token only — never the controller token. Place
+  the `ulink-agent` binary on the target machine first, run the command, then
+  approve the 6-digit code from the operator side
+  (`ulink pair approve <code>` or the dashboard).
+
+A healthy install shows every self-check line green. The most common failures
+and what they mean:
+
+| Check | Typical failure | Fix |
+|---|---|---|
+| 中继连通 / TLS | `certificate signed by unknown authority` | fill the TLS pin for a self-signed relay |
+| 中继连通 / TLS | `tls pin mismatch` | re-copy the fingerprint from `openssl x509 -fingerprint -sha256` |
+| 控制端验证 | `invalid token` | controller token does not match `CONTROLLER_TOKEN` |
+| 本机注册状态 | stuck at 连线中 | wrong agent token, or the relay is not reachable |
+| 系统代理 | warns with a proxy URL | turn on 「绕过系统代理」 if the relay is on a local/LAN address |
+
 ## Menu
 
 ```

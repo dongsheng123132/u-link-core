@@ -157,6 +157,20 @@ button{font:inherit}
 .log-text{flex:1;min-width:0;color:var(--text-2);word-break:break-word;line-height:1.6}
 .log-row.error .log-text{color:var(--red)}
 .log-row.warn .log-text{color:#7A5312}
+.steps{display:flex;flex-direction:column;gap:10px;margin:0;padding:0;list-style:none;counter-reset:step}
+.step{display:flex;gap:11px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-sm);background:#FBFCFD}
+.step-no{flex:0 0 auto;width:22px;height:22px;border-radius:50%;background:var(--blue-soft);color:var(--blue-d);font-size:12px;font-weight:600;display:grid;place-items:center}
+.step.done .step-no{background:var(--green);color:#fff}
+.step-body{min-width:0;flex:1}
+.step-title{font-weight:600;font-size:13px}
+.code{display:block;white-space:pre-wrap;word-break:break-all;font-family:var(--mono);font-size:12px;background:#F5F6F8;border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:10px 0;color:var(--text)}
+.check-list{display:flex;flex-direction:column;gap:2px}
+.check-row{display:flex;gap:9px;align-items:flex-start;padding:7px 0;border-bottom:1px dashed var(--line);font-size:12.5px}
+.check-row:last-child{border-bottom:none}
+.check-status{flex:0 0 auto;width:16px;text-align:center;font-weight:700}
+.check-status.ok{color:var(--green)}.check-status.warn{color:#C08A1E}.check-status.fail{color:var(--red)}.check-status.skip{color:var(--text-3)}
+.check-body{min-width:0;flex:1}
+.check-hint{color:var(--text-3);font-size:12px;margin-top:2px}
 .gate{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:24px;z-index:60;overflow:auto}
 .gate-card{width:min(460px,100%);background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 44px rgba(23,32,50,.10);padding:26px 26px 22px}
 .gate-brand{display:flex;align-items:center;gap:9px;font-weight:600;margin-bottom:18px;font-size:14.5px}
@@ -215,6 +229,38 @@ button{font:inherit}
       </div>
     </div>
   </section>
+
+  <!-- 区块 1b：首次配置引导（未就绪时才显示） -->
+  <section class="card" id="onboarding" aria-labelledby="h-onboarding" hidden>
+    <div class="card-h"><h2 id="h-onboarding">首次配置</h2><span class="hint">按顺序做完就能用起来</span></div>
+    <div class="card-b">
+      <ol class="steps" id="onboarding-steps"></ol>
+    </div>
+  </section>
+
+  <!-- 区块 1c：自检 + 添加设备 -->
+  <div class="cols">
+    <section class="card" id="doctor" aria-labelledby="h-doctor">
+      <div class="card-h">
+        <h2 id="h-doctor">一键自检</h2><span class="pill subtle" id="doctor-pill">未运行</span>
+        <span class="spacer"></span>
+        <button class="btn sm" type="button" id="btn-doctor">运行自检</button>
+        <button class="btn sm" type="button" id="btn-doctor-copy">复制报告</button>
+      </div>
+      <div class="card-b"><div class="empty" id="doctor-empty">点「运行自检」检查中继、TLS、令牌、代理和本机状态</div>
+        <div class="check-list" id="doctor-list" hidden></div></div>
+    </section>
+
+    <section class="card" id="enroll" aria-labelledby="h-enroll">
+      <div class="card-h"><h2 id="h-enroll">添加设备</h2><span class="hint">在另一台机器上执行</span></div>
+      <div class="card-b">
+        <div class="field"><label for="enroll-id">新设备 ID</label><input class="input mono" id="enroll-id" type="text" placeholder="例如 win-office" spellcheck="false"></div>
+        <div class="settings-actions"><button class="btn primary" type="button" id="btn-enroll">生成命令</button><span class="hint" id="enroll-state"></span></div>
+        <code class="code" id="enroll-cmd" hidden></code>
+        <div class="hint" id="enroll-hint">命令里只有被控端令牌：它只能让机器注册到你的 relay，不能控制任何设备；控制端令牌不会出现。它仍属敏感信息，别贴到公开渠道。新设备注册后还需要运维审批配对码。</div>
+      </div>
+    </section>
+  </div>
 
   <div class="cols">
     <!-- 区块 2：设备列表 -->
@@ -546,6 +592,7 @@ button{font:inherit}
       $('link-issue').href = repo + '/issues/new';
       $('link-pr').href = repo + '/pulls';
     }
+    renderOnboarding(s);
     if (!$('version-label').dataset.pinned) {
       $('version-label').textContent = s.version ? String(s.version) : '本地服务';
       $('version-label').dataset.pinned = '1';
@@ -1136,6 +1183,115 @@ button{font:inherit}
     startPolling();
   }
 
+  /* ---------- 首次配置引导 ---------- */
+  function renderOnboarding(s) {
+    if (!s) return;
+    var a = s.agent || {}, c = s.controller || {}, st = s.settings || {};
+    var steps = [
+      { t: '填中继地址', d: 'wss://你的 relay:8900', done: !!String(a.relay || '').trim() },
+      { t: '填被控端令牌', d: 'relay 的 AGENT_TOKEN，本机才能注册', done: !!st.agent_token_set },
+      { t: '填控制端令牌', d: 'relay 的 CONTROLLER_TOKEN，才能控制别的机器', done: !!st.controller_token_set },
+      { t: '填 TLS 证书指纹', d: '仅自签名 relay 需要；受信任 CA 证书留空', done: true, optional: true },
+      { t: '连上中继', d: '状态点变绿、本机 ID 出现', done: String(a.state) === 'online' },
+      { t: '添加并配对第二台设备', d: '用「添加设备」生成命令，在另一台执行后审批', done: (c.device_count || 0) > 0 }
+    ];
+    var pending = steps.filter(function (x) { return !x.done && !x.optional; });
+    var card = $('onboarding');
+    if (!pending.length) { card.hidden = true; return; }
+    card.hidden = false;
+
+    var ol = $('onboarding-steps');
+    ol.textContent = '';
+    steps.forEach(function (x, i) {
+      var li = document.createElement('li');
+      li.className = 'step' + (x.done ? ' done' : '');
+      var no = document.createElement('span');
+      no.className = 'step-no';
+      no.textContent = x.done ? '✓' : String(i + 1);
+      var body = document.createElement('div');
+      body.className = 'step-body';
+      var title = document.createElement('div');
+      title.className = 'step-title';
+      title.textContent = x.t + (x.optional ? '（可选）' : '');
+      var hint = document.createElement('div');
+      hint.className = 'hint';
+      hint.textContent = x.d;
+      body.appendChild(title);
+      body.appendChild(hint);
+      li.appendChild(no);
+      li.appendChild(body);
+      ol.appendChild(li);
+    });
+  }
+
+  /* ---------- 一键自检 ---------- */
+  var DOCTOR_MARK = { ok: '✓', warn: '!', fail: '✕', skip: '–' };
+
+  function runDoctor() {
+    var btn = $('btn-doctor');
+    btn.disabled = true;
+    apiJSON('/api/doctor').then(function (res) {
+      state.doctor = res;
+      var list = $('doctor-list');
+      list.textContent = '';
+      list.hidden = false;
+      $('doctor-empty').hidden = true;
+      (res.checks || []).forEach(function (c) {
+        var row = document.createElement('div');
+        row.className = 'check-row';
+        var mark = document.createElement('span');
+        mark.className = 'check-status ' + c.status;
+        mark.textContent = DOCTOR_MARK[c.status] || '?';
+        var body = document.createElement('div');
+        body.className = 'check-body';
+        var line = document.createElement('div');
+        line.textContent = c.label + '：' + c.detail;
+        body.appendChild(line);
+        if (c.hint) {
+          var hint = document.createElement('div');
+          hint.className = 'check-hint';
+          hint.textContent = c.hint;
+          body.appendChild(hint);
+        }
+        row.appendChild(mark);
+        row.appendChild(body);
+        list.appendChild(row);
+      });
+      var fails = res.fails || 0, warns = res.warns || 0;
+      $('doctor-pill').textContent = fails ? ('有 ' + fails + ' 项错误')
+        : (warns ? ('全部通过（' + warns + ' 项提醒）') : '全部通过');
+    }).catch(function (err) {
+      toast('自检失败：' + ((err && err.message) || '未知错误'));
+    }).then(function () { btn.disabled = false; });
+  }
+
+  function copyDoctorReport() {
+    if (!state.doctor) { toast('先运行一次自检'); return; }
+    var text = (state.doctor.checks || []).map(function (c) {
+      return '[' + c.status + '] ' + c.label + ': ' + c.detail + (c.hint ? ' | ' + c.hint : '');
+    }).join('\n');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { toast('自检报告已复制'); }, function () { toast('复制失败，请手动选择'); });
+    } else { toast('当前浏览器不支持自动复制'); }
+  }
+
+  /* ---------- 添加设备 ---------- */
+  function generateEnroll() {
+    var id = $('enroll-id').value.trim();
+    apiJSON('/api/enroll' + (id ? '?id=' + encodeURIComponent(id) : '')).then(function (res) {
+      var code = $('enroll-cmd');
+      code.hidden = false;
+      code.textContent = res.command;
+      $('enroll-state').textContent = '已生成';
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(res.command).then(function () { toast('命令已复制'); }, function () {});
+      }
+    }).catch(function (err) {
+      $('enroll-state').textContent = '';
+      toast('生成失败：' + ((err && err.message) || '先填好中继地址和被控端令牌'));
+    });
+  }
+
   /* ---------- 事件绑定 ---------- */
   function bindEvents() {
     $('btn-refresh-all').addEventListener('click', function () { refreshAll(); toast('正在刷新'); });
@@ -1167,6 +1323,9 @@ button{font:inherit}
     $('sw-autostart').addEventListener('change', function (e) {
       onSwitchChange('autostart', e.target, '已开启开机自启', '已关闭开机自启');
     });
+    $('btn-doctor').addEventListener('click', runDoctor);
+    $('btn-doctor-copy').addEventListener('click', copyDoctorReport);
+    $('btn-enroll').addEventListener('click', generateEnroll);
     $('btn-save-settings').addEventListener('click', saveSettings);
     $('btn-clear-controller-token').addEventListener('click', clearControllerToken);
     $('btn-toggle-agent-token').addEventListener('click', toggleAgentToken);

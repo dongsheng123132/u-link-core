@@ -25,6 +25,8 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("/api/logs", a.auth(a.handleLogs))
 	mux.HandleFunc("/api/settings", a.auth(a.handleSettings))
 	mux.HandleFunc("/api/agent/restart", a.auth(a.handleAgentRestart))
+	mux.HandleFunc("/api/doctor", a.auth(a.handleDoctor))
+	mux.HandleFunc("/api/enroll", a.auth(a.handleEnroll))
 	mux.HandleFunc("/api/install-self", a.auth(a.handleInstallSelf))
 	return mux
 }
@@ -398,6 +400,49 @@ func (a *App) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		"ok":               true,
 		"restart_required": restart,
 	})
+}
+
+// handleDoctor returns the self-check report used by the dashboard card.
+func (a *App) handleDoctor(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	defer cancel()
+	checks := a.doctor(ctx)
+	fails, warns := 0, 0
+	for _, c := range checks {
+		switch c.Status {
+		case statusFail:
+			fails++
+		case statusWarn:
+			warns++
+		}
+	}
+	// ok means "nothing is broken". Warnings are still surfaced separately so
+	// the dashboard never presents a warned run as fully healthy.
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":     fails == 0,
+		"fails":  fails,
+		"warns":  warns,
+		"checks": checks,
+	})
+}
+
+// handleEnroll returns the copy-paste command for enrolling another machine.
+// It contains the public agent token only.
+func (a *App) handleEnroll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	cmd := a.enrollCommand(r.URL.Query().Get("id"))
+	if cmd == "" {
+		writeJSON(w, http.StatusPreconditionFailed, map[string]string{"error": "先配置中继地址和被控端令牌"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"command": cmd})
 }
 
 // handleInstallSelf copies the running bundle into /Applications (the
