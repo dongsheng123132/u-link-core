@@ -142,8 +142,7 @@ ulink mcp                                   # 接到 Claude Code / DSH / Codex
 
 ## 状态
 
-**v0.3 alpha**：核心可自托管使用，仍在加固中。已知缺口：controller token 仍是全局单 token、
-没有端到端加密、还没有 Windows 管理员 Helper。
+**当前公开发布标签：`v0.5.1`（2026-11-06）**。仓内 CLI 能力文档仍标记为 v0.3；这是文档中的能力版本，不是 GitHub Release 标签。项目仍处于 alpha 加固阶段，不构成企业生产就绪承诺。已知缺口：controller token 仍是全局单 token、没有端到端加密、还没有 Windows 管理员 Helper。
 
 ## 本地验证
 

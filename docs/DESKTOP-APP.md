@@ -131,6 +131,15 @@ The two GitHub entries open the project's issue and pull-request pages. Set
 | macOS | `~/Library/Application Support/U-Link/config.json` | `~/Library/Logs/U-Link/` |
 | Windows | `%APPDATA%\U-Link\config.json` | `%LOCALAPPDATA%\U-Link\logs\` |
 
+The desktop app log is `u-link.log`; during normal operation it rotates in 10 MiB
+chunks and keeps up to three numbered backups (`u-link.log.1` through `.3`). On
+startup it rotates an existing log that is at or above the threshold; if that
+startup rotation fails, the app still starts and keeps appending to the existing
+file. If the filesystem prevents rotation later, the app tries to append the
+remaining log entry to the current file, which can then exceed 10 MiB. A small `u-link.log.lock` file
+coordinates writers across processes and remains after the app closes. Agent
+action audit logs are separate.
+
 `config.json` is written with `0600` permissions because it holds the controller
 token. The controller token is never compiled into the binary and never returned
 by the local API.

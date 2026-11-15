@@ -2,7 +2,7 @@
 
 > 版本：v0.1 方向稿 · 2026-11-05
 > 依据：经过匿名化的需求调研与公开版本边界；具体实现仍以代码和发布说明为准。
-> 关联：[PRODUCT-VISION.md](./PRODUCT-VISION.md)（个人/开发者线）、[PUBLIC-EDITION.md](./PUBLIC-EDITION.md)（开源拆分）
+> 关联：[ULINK-CLI.md](./ULINK-CLI.md)（公开核心 CLI）、[KVM-ADAPTER.md](./KVM-ADAPTER.md)（外接 KVM）。企业版功能与阶段在本文中仍是方向稿。
 
 ## 0. 一句话
 
@@ -110,7 +110,7 @@
   - 可选 **截图**（只读）帮助判断；不做实时控制。
   - 屏幕控制转接现有工具（RustDesk/向日葵/RDP），或企业版 v1.5 再评估集成（注意许可证）。
 - 不自研 WebRTC/RDP 推流；那会把团队拖进 RustDesk 的战场。
-- **长期方向（不阻塞 v1）**：U-Link 增加「视觉 + 输入」两条通道，做成外置 **KVM 节点**（HDMI 采集 + USB HID 注入），覆盖机器没进操作系统时的 BIOS/黑屏场景；硬件不自研，用 PiKVM/NanoKVM 等开源节点。详见 [REMOTE-KVM-NODE.md](./REMOTE-KVM-NODE.md)。
+- **长期方向（不阻塞 v1）**：U-Link 增加「视觉 + 输入」两条通道，做成外置 **KVM 节点**（HDMI 采集 + USB HID 注入），覆盖机器没进操作系统时的 BIOS/黑屏场景；硬件不自研，用 PiKVM/NanoKVM 等开源节点。公开仓当前只提供 [KVM 适配器说明](./KVM-ADAPTER.md)，不包含完整节点方案。
 
 ## 6. 架构
 
@@ -138,7 +138,7 @@
 
 - **公开 core（Apache-2.0）**：agent、relay、协议、配对/密钥、CLI、MCP、基础审计、recipe 格式、示例 recipe、部署 compose。
 - **私有企业版（商业许可）**：企业控制台、RBAC/SSO/AD、多租户/MSP、策略引擎、审计导出/SIEM、屏幕/截图增强、品牌定制、签名安装包流水线、SLA/定制开发。
-- 详见 [PUBLIC-EDITION.md](./PUBLIC-EDITION.md)。
+- 本文中的商业边界是方向稿；目前公开仓没有独立的 Enterprise 发行包或完整商业版规格。
 
 ## 8. 路线图与验收
 

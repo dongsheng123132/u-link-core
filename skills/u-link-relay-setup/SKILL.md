@@ -74,7 +74,7 @@ ulink devices     # 应该能看到对方在线
 - **非回环监听必须同时启用 TLS 和设备密钥**，否则服务端直接拒绝启动。
 - `REQUIRE_DEVICE_KEYS=0` 只允许在回环调试时用，不能暴露到网络。
 - relay 是无状态的（设备/待审批都在内存），重启后需要重新配对。
-- 详细令牌权限边界见 [SECURITY.md](../SECURITY.md#token-scope)。
+- 详细令牌权限边界见 [SECURITY.md](../../SECURITY.md#token-scope)。
 
 ## 5. 常见故障
 

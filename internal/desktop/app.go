@@ -40,7 +40,7 @@ type App struct {
 	cfgPath  string
 	lockPath string
 	ring     *Ring
-	logFile  *os.File
+	logFile  io.Closer
 	firstRun bool
 
 	cfgMu sync.RWMutex
@@ -165,16 +165,19 @@ func applyOverrides(cfg *Config, opts Options) {
 
 func (a *App) setupLogging(logDir string) error {
 	path := filepath.Join(logDir, "u-link.log")
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	f, err := newRotatingLogWriter(path, defaultLogMaxBytes, defaultLogBackups)
 	if err != nil {
 		return fmt.Errorf("打开日志文件失败: %w", err)
 	}
 	a.logFile = f
-	// Order matters: the file and the ring must be written even if
-	// stderr is a closed handle (Windows GUI builds have no console).
-	log.SetOutput(io.MultiWriter(f, a.ring, os.Stderr))
+	// Keep the in-memory ring even if disk logging fails. Both the ring
+	// and file are written before stderr (Windows GUI builds have no console).
+	log.SetOutput(io.MultiWriter(a.ring, f, os.Stderr))
 	log.SetFlags(log.LstdFlags)
 	log.SetPrefix("")
+	if f.startupRotationErr != nil {
+		log.Printf("warning: startup log rotation failed; continuing with existing file: %v", f.startupRotationErr)
+	}
 	return nil
 }
 

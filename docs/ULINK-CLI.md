@@ -2,7 +2,7 @@
 
 > 状态：v0.3 可运行 · 2026-11-05
 > v0.2 补设备身份；v0.3 补「员工出码 → IT 审批」和文件根目录/TLS pin。
-> 愿景与路线图：[PRODUCT-VISION.md](./PRODUCT-VISION.md)；安全与发布注意事项：[SECURITY.md](../SECURITY.md)
+> GitHub 最新发布标签与本文件的能力版本可能不同；本文件记录 v0.3 CLI 能力。安全与发布注意事项：[SECURITY.md](../SECURITY.md)；项目说明：[README.zh-CN.md](../README.zh-CN.md)。
 
 ## 1. 现在能做什么
 

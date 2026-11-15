@@ -167,9 +167,7 @@ Read [SECURITY.md](SECURITY.md) before exposing a relay to the internet.
 
 ## Status
 
-**v0.3 alpha.** The core is usable self-hosted and is being hardened. Known
-gaps: the controller token is still a single global token, payload E2E is not
-implemented, and there is no Windows admin helper yet.
+**Latest public release tag: `v0.5.1` (2026-11-06).** The CLI capability document in this repository still says v0.3; that is its capability-document version, not the GitHub Release tag. The project remains in alpha hardening and is not a claim of enterprise production readiness. Known gaps: the controller token is still a single global token, payload E2E is not implemented, and there is no Windows admin helper yet.
 
 ## Verify locally
 
