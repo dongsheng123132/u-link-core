@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
+
+	"github.com/dongsheng123132/remote-agent/internal/winhide"
 )
 
 // buildCmdShell returns an *exec.Cmd that runs `command` under the
@@ -37,7 +39,7 @@ func buildCmdShell(ctx context.Context, command, shell string) *exec.Cmd {
 		// Unknown explicit shell — assume the caller knows what they're
 		// doing and treat it as a literal executable path that takes
 		// the command as a single argv arg.  Last-resort escape hatch.
-		return exec.CommandContext(ctx, shell, "-c", command)
+		return winhide.Apply(exec.CommandContext(ctx, shell, "-c", command))
 	}
 }
 
@@ -63,11 +65,11 @@ func buildCmd(ctx context.Context, command string) *exec.Cmd {
 // now we leave the encoding alone — operator can prefix their own
 // `chcp 65001 | Out-Null` when chinese output matters.
 func buildCmdPowerShell(ctx context.Context, command string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "powershell.exe",
+	cmd := winhide.Apply(exec.CommandContext(ctx, "powershell.exe",
 		"-NoProfile",
 		"-NonInteractive",
 		"-ExecutionPolicy", "Bypass",
-		"-Command", "-")
+		"-Command", "-"))
 	cmd.Stdin = strings.NewReader(command)
 	return cmd
 }
@@ -80,5 +82,5 @@ func buildCmdLegacy(ctx context.Context, command string) *exec.Cmd {
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		CmdLine: `cmd /S /C "` + command + `"`,
 	}
-	return cmd
+	return winhide.Apply(cmd)
 }

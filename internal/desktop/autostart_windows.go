@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/dongsheng123132/remote-agent/internal/winhide"
 )
 
 const (
@@ -17,7 +19,7 @@ const (
 func platformAutostartSupported() bool { return true }
 
 func platformAutostartEnabled() bool {
-	out, err := exec.Command("reg", "query", autostartRunKey, "/v", autostartValueName).CombinedOutput()
+	out, err := winhide.Apply(exec.Command("reg", "query", autostartRunKey, "/v", autostartValueName)).CombinedOutput()
 	return err == nil && strings.Contains(string(out), autostartValueName)
 }
 
@@ -27,7 +29,7 @@ func platformAutostartEnabled() bool {
 // tradeoff (documented in docs/DESKTOP-APP.md §5).
 func setAutostart(enabled bool) error {
 	if !enabled {
-		_ = exec.Command("reg", "delete", autostartRunKey, "/v", autostartValueName, "/f").Run()
+		_ = winhide.Apply(exec.Command("reg", "delete", autostartRunKey, "/v", autostartValueName, "/f")).Run()
 		if platformAutostartEnabled() {
 			return fmt.Errorf("清除启动项失败，请手动检查注册表 HKCU\\...\\Run")
 		}
@@ -41,8 +43,8 @@ func setAutostart(enabled bool) error {
 	// The Run value must be a quoted command line so paths with spaces
 	// (C:\Program Files\...) survive.
 	quoted := `"` + exe + `"`
-	out, err := exec.Command("reg", "add", autostartRunKey,
-		"/v", autostartValueName, "/t", "REG_SZ", "/d", quoted, "/f").CombinedOutput()
+	out, err := winhide.Apply(exec.Command("reg", "add", autostartRunKey,
+		"/v", autostartValueName, "/t", "REG_SZ", "/d", quoted, "/f")).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("写入启动项失败: %v (%s)", err, strings.TrimSpace(string(out)))
 	}
