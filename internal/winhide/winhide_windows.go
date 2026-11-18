@@ -2,12 +2,10 @@
 
 // Package winhide keeps child processes from opening a console window.
 //
-// u-link.exe is built with -H windowsgui, so the parent owns no console.
-// Windows therefore allocates a brand-new console for every console child
-// (cmd.exe, powershell.exe, reg.exe, clip.exe), which shows up as a black
-// window that pops and vanishes on the controlled machine — the "terminal
-// keeps flashing" report from customers. CREATE_NO_WINDOW + SW_HIDE stops
-// the allocation; output still flows through the pipes as before.
+// The desktop app is built with -H windowsgui and typically has no console.
+// Starting console children from it can open a visible terminal window for
+// each remote command. CREATE_NO_WINDOW and HideWindow prevent this for the
+// processes using this helper while retaining redirected standard streams.
 package winhide
 
 import (
